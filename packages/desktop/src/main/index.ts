@@ -9,11 +9,17 @@ const isDev =
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin';
   const isLinux = process.platform === 'linux';
+  const iconPath = join(
+    __dirname,
+    '../../build',
+    process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+  );
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     show: false,
     autoHideMenuBar: true,
+    icon: iconPath,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     trafficLightPosition: isMac ? { x: 14, y: 14 } : undefined,
     frame: isLinux ? false : undefined,
