@@ -1,5 +1,5 @@
-import { createWriteStream } from 'node:fs';
-import { join } from 'node:path';
+import { createWriteStream, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { WorkerClient } from '@relay/core';
 import { app, safeStorage } from 'electron';
@@ -40,6 +40,7 @@ export function spawnWorkerForWindow(
 
   const defaultRpcUrl = process.env.RELAY_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
   const logPath = join(app.getPath('userData'), 'logs', `worker-${windowId}.log`);
+  mkdirSync(dirname(logPath), { recursive: true });
   const logStream = createWriteStream(logPath, { flags: 'a' });
   logStream.write(`\n=== worker ${windowId} spawn at ${new Date().toISOString()} ===\n`);
   logStream.write(`project: ${opts.projectRoot}\n`);

@@ -1,6 +1,16 @@
+import { Check, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Spinner } from '../components/Spinner';
+import {
+  Badge,
+  Button,
+  ErrorState,
+  Field,
+  Input,
+  Pubkey,
+  Select,
+  Spinner,
+} from '../ui';
 
 interface BuiltinDescriptor {
   programId: string;
@@ -20,7 +30,7 @@ export function AddProgramForm({
   onDone: () => void;
 }): JSX.Element {
   const [builtins, setBuiltins] = useState<BuiltinDescriptor[]>([]);
-  const [selection, setSelection] = useState<string>(OTHER); // OTHER or builtin programId
+  const [selection, setSelection] = useState<string>(OTHER);
   const [programId, setProgramId] = useState('');
   const [rpcUrl, setRpcUrl] = useState('');
   const [slot, setSlot] = useState('');
@@ -59,82 +69,86 @@ export function AddProgramForm({
   };
 
   return (
-    <>
-      <h3>Add program</h3>
-      {err && <div className="error-banner">{err}</div>}
+    <div className="flex flex-col gap-4 min-w-[440px]">
+      <h3 className="m-0 text-md font-semibold">Add program</h3>
+      {err && <ErrorState title="Failed to add program" message={err} />}
 
-      <label>Source</label>
-      <select value={selection} onChange={(e) => setSelection(e.target.value)}>
-        <option value={OTHER}>Other (paste program ID, clone from RPC)</option>
-        {builtins.length > 0 && <option disabled>──── Built-in ────</option>}
-        {builtins.map((b) => (
-          <option key={b.programId} value={b.programId}>
-            {b.label}
-            {b.inSvm ? ' · LiteSVM' : ' · RPC clone (auto)'}
-          </option>
-        ))}
-      </select>
+      <Field label="Source">
+        <Select value={selection} onChange={(e) => setSelection(e.target.value)}>
+          <option value={OTHER}>Other (paste program ID, clone from RPC)</option>
+          {builtins.length > 0 && <option disabled>──── Built-in ────</option>}
+          {builtins.map((b) => (
+            <option key={b.programId} value={b.programId}>
+              {b.label}
+              {b.inSvm ? ' · LiteSVM' : ' · RPC clone (auto)'}
+            </option>
+          ))}
+        </Select>
+      </Field>
 
       {chosenBuiltin && (
-        <div
-          style={{
-            background: 'var(--bg)',
-            border: '1px solid var(--border)',
-            borderRadius: 4,
-            padding: 10,
-            marginTop: 10,
-            fontSize: 12,
-            color: 'var(--text-dim)',
-          }}
-        >
-          <div style={{ color: 'var(--text)', marginBottom: 4 }}>{chosenBuiltin.label}</div>
-          <div className="mono" style={{ fontSize: 11, marginBottom: 4 }}>
-            {chosenBuiltin.programId}
+        <div className="rounded-md border border-border bg-surface-0 p-3">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="text-sm font-medium text-text">{chosenBuiltin.label}</div>
+            {chosenBuiltin.inSvm ? (
+              <Badge size="sm" variant="success">
+                <Check size={10} aria-hidden /> in LiteSVM
+              </Badge>
+            ) : (
+              <Badge size="sm" variant="accent">
+                <RefreshCw size={10} aria-hidden /> RPC clone
+              </Badge>
+            )}
           </div>
-          <div>{chosenBuiltin.description}</div>
-          {chosenBuiltin.inSvm && (
-            <div style={{ marginTop: 6, color: 'var(--success)' }}>
-              ✓ Bundled into LiteSVM — instant attach, no RPC roundtrip
-            </div>
-          )}
-          {!chosenBuiltin.inSvm && (
-            <div style={{ marginTop: 6, color: 'var(--accent)' }}>
-              ↻ Will auto-clone from RPC on first use
-            </div>
-          )}
+          <div className="mt-1.5">
+            <Pubkey value={chosenBuiltin.programId} className="text-text-muted" />
+          </div>
+          <div className="mt-2 text-xs text-text-muted leading-relaxed">
+            {chosenBuiltin.description}
+          </div>
+          <div className="mt-2 text-2xs text-text-subtle">
+            {chosenBuiltin.inSvm
+              ? 'Bundled into LiteSVM — instant attach, no RPC roundtrip.'
+              : 'Will auto-clone from RPC on first use.'}
+          </div>
         </div>
       )}
 
       {isOther && (
         <>
-          <label>Program ID</label>
-          <input
-            value={programId}
-            onChange={(e) => setProgramId(e.target.value)}
-            placeholder="base58 program ID"
-            className="mono"
-            autoFocus
-          />
-          <label>RPC URL override (optional)</label>
-          <input value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} />
-          <label>Slot (optional)</label>
-          <input value={slot} onChange={(e) => setSlot(e.target.value)} />
+          <Field label="Program ID" required>
+            <Input
+              value={programId}
+              onChange={(e) => setProgramId(e.target.value)}
+              placeholder="base58 program ID"
+              className="font-mono"
+              autoFocus
+            />
+          </Field>
+          <Field label="RPC URL override" help="Leave blank to use project RPC.">
+            <Input value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} />
+          </Field>
+          <Field label="Slot" help="Optional — pin clone to a specific slot.">
+            <Input value={slot} onChange={(e) => setSlot(e.target.value)} className="font-mono" />
+          </Field>
         </>
       )}
 
-      <div className="actions">
-        <button onClick={() => onDone()}>Cancel</button>
-        <button className="primary" disabled={!effectiveProgramId || busy} onClick={submit}>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button variant="ghost" onClick={() => onDone()}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!effectiveProgramId || busy} onClick={submit}>
           {busy ? (
             <>
-              <Spinner /> &nbsp;
-              {isOther && chosenBuiltin === undefined ? 'Cloning from RPC…' : 'Adding…'}
+              <Spinner size={12} />{' '}
+              {isOther && chosenBuiltin === undefined ? 'Cloning…' : 'Adding…'}
             </>
           ) : (
-            'Add'
+            'Add program'
           )}
-        </button>
+        </Button>
       </div>
-    </>
+    </div>
   );
 }

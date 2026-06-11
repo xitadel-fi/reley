@@ -1,10 +1,47 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  ChevronDown,
+  ChevronUp,
+  GitBranch,
+  Info,
+  Pencil,
+  Play,
+  Save,
+  Trash2,
+  Unlink,
+  X,
+  Zap,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import type { Project } from '../types';
+import {
+  Badge,
+  Button,
+  Empty,
+  ErrorState,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from '../ui';
 import { DeriveAddressForm } from './DeriveAddressForm';
+import {
+  runDiagnostics,
+  type DiagIx,
+  type Issue,
+  type Severity,
+} from './tx-diagnostics';
 import { TxResultView, type TxSendResult } from './TxResultView';
 
 interface KeypairMeta {
@@ -275,8 +312,32 @@ export function TxBuilderPanel({
     setNamedAccounts(initAccs);
   }, [selectedIx]);
 
+  // Hooks must run in the same order on every render — keep all useMemo /
+  // useEffect calls ABOVE any early return.
+  const diagnostics = useMemo<Issue[]>(() => {
+    const ixs: DiagIx[] = drafts.map((d) => ({
+      id: d.id,
+      programId: d.programId,
+      instructionName: d.instructionName,
+      accounts: d.accounts.map((a) => ({
+        pubkey: a.pubkey,
+        isSigner: a.isSigner,
+        isWritable: a.isWritable,
+      })),
+    }));
+    const knownSigners = new Set(keypairs.map((k) => k.pubkey));
+    const payerPubkey = keypairs.find((k) => k.id === payerId)?.pubkey ?? null;
+    return runDiagnostics(ixs, { knownSignerPubkeys: knownSigners, payerPubkey });
+  }, [drafts, keypairs, payerId]);
+
   if (!activeSessionId) {
-    return <div className="empty">Select a session in the tree to build transactions.</div>;
+    return (
+      <Empty
+        icon={<GitBranch size={20} aria-hidden />}
+        title="No session selected"
+        description="Pick a session in the sidebar to start building transactions."
+      />
+    );
   }
 
   const addAccount = (): void =>
@@ -579,18 +640,28 @@ export function TxBuilderPanel({
     }
   };
 
+  const totalIxCount = drafts.length + (programId ? 1 : 0);
+  const blockingErrors = diagnostics.some((d) => d.severity === 'error');
+
   return (
-    <>
+    <div className="flex flex-col gap-4">
+      {/* ───── Templates ───── */}
       <div className="panel">
-        <h2>Templates</h2>
-        <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 8 }}>
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="m-0">Templates</h2>
+          <span className="text-2xs text-text-subtle">
+            {templates.length} saved
+          </span>
+        </div>
+        <div className="text-xs text-text-muted mb-3">
           Save the current tx (drafts + form) as a named template. Reload anytime.
         </div>
-        <div className="row" style={{ alignItems: 'center' }}>
-          <select
+
+        <div className="flex items-center gap-2">
+          <Select
             value={loadedTemplateId ?? ''}
             onChange={(e) => loadTemplate(e.target.value)}
-            style={{ flex: 1 }}
+            className="flex-1"
           >
             <option value="">— load template —</option>
             {templates.map((t) => (
@@ -598,256 +669,412 @@ export function TxBuilderPanel({
                 {t.name} ({t.ixs.length} ix)
               </option>
             ))}
-          </select>
+          </Select>
           {loadedTemplateId && (
-            <button
-              className="primary"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => void updateLoadedTemplate()}
               title="Overwrite the loaded template with current drafts"
             >
-              ⟲ Update template
-            </button>
+              <Save size={12} aria-hidden /> Update
+            </Button>
           )}
-          <button onClick={saveTemplate}>Save as new…</button>
+          <Button variant="outline" size="sm" onClick={saveTemplate}>
+            Save as new…
+          </Button>
           {loadedTemplateId && (
-            <button onClick={() => setLoadedTemplateId(null)} title="Detach from loaded template">
-              ⌫ Unlink
-            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLoadedTemplateId(null)}
+              title="Detach from loaded template"
+            >
+              <Unlink size={12} aria-hidden /> Unlink
+            </Button>
           )}
         </div>
+
         {templates.length > 0 && (
-          <table className="acc-table" style={{ marginTop: 10 }}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Ix</th>
-                <th>Updated</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {templates.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.name}</td>
-                  <td>{t.ixs.length}</td>
-                  <td className="mono" style={{ fontSize: 11 }}>
-                    {new Date(t.updatedAt).toISOString().slice(0, 19)}
-                  </td>
-                  <td>
-                    <button onClick={() => loadTemplate(t.id)}>Load</button>{' '}
-                    <button className="danger" onClick={() => void deleteTemplate(t.id)}>
-                      Delete
-                    </button>
-                  </td>
+          <div className="mt-3 rounded-md border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
+                <tr>
+                  <th className="text-left font-medium px-3 py-1.5">Name</th>
+                  <th className="text-left font-medium px-3 py-1.5 w-12">Ix</th>
+                  <th className="text-left font-medium px-3 py-1.5">Updated</th>
+                  <th className="px-3 py-1.5 w-32" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {templates.map((t) => (
+                  <tr key={t.id} className="border-t border-border hover:bg-surface-1/50">
+                    <td className="px-3 py-1.5 text-text">{t.name}</td>
+                    <td className="px-3 py-1.5 text-text-muted">{t.ixs.length}</td>
+                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
+                      {new Date(t.updatedAt).toISOString().slice(0, 19)}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="ghost" size="xs" onClick={() => loadTemplate(t.id)}>
+                          Load
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="xs"
+                          onClick={() => void deleteTemplate(t.id)}
+                        >
+                          <Trash2 size={11} aria-hidden />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {drafts.length > 0 && (
         <div className="panel">
-          <h2>Pending instructions ({drafts.length})</h2>
-          <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 8 }}>
-            Reorder with ↑/↓. Current form (below) executes at the position you choose when adding.
+          <div className="flex items-baseline justify-between mb-2">
+            <h2 className="m-0">
+              Pending instructions <span className="text-text-muted">({drafts.length})</span>
+            </h2>
+            <span className="text-2xs text-text-subtle">
+              Reorder with ↑↓ · current form executes at chosen position
+            </span>
           </div>
-          {drafts.map((d, idx) => (
-            <div
-              key={d.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: 8,
-                borderBottom: '1px solid var(--border)',
-                fontSize: 12,
-                background:
-                  editingDraftId === d.id ? 'rgba(90,141,238,0.12)' : undefined,
-              }}
-            >
-              <span
-                className="mono"
-                style={{
-                  width: 22,
-                  color: 'var(--text-dim)',
-                  textAlign: 'right',
-                }}
-              >
-                #{idx + 1}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div>
-                  <span style={{ color: 'var(--accent)' }}>{d.instructionName}</span>{' '}
-                  <span style={{ color: 'var(--text-dim)' }}>on</span> {d.programLabel}
-                </div>
-                <div
-                  className="mono"
-                  style={{
-                    color: 'var(--text-dim)',
-                    fontSize: 10,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
+
+          <ul className="flex flex-col rounded-md border border-border overflow-hidden">
+            {drafts.map((d, idx) => {
+              const isEditing = editingDraftId === d.id;
+              const ixIssues = diagnostics.filter((iss) => iss.ixIndex === idx);
+              const worstSeverity: Severity | null = ixIssues.length
+                ? ixIssues.some((i) => i.severity === 'error')
+                  ? 'error'
+                  : ixIssues.some((i) => i.severity === 'warning')
+                    ? 'warning'
+                    : 'info'
+                : null;
+              return (
+                <li
+                  key={d.id}
+                  className={[
+                    'flex items-center gap-2 px-3 py-2 border-b border-border last:border-b-0',
+                    isEditing ? 'bg-accent/10' : 'hover:bg-surface-1/40',
+                  ].join(' ')}
                 >
-                  {d.summary}
-                </div>
-              </div>
-              <button
-                onClick={() => moveDraft(d.id, -1)}
-                disabled={idx === 0}
-                title="Move up"
-              >
-                ↑
-              </button>
-              <button
-                onClick={() => moveDraft(d.id, 1)}
-                disabled={idx === drafts.length - 1}
-                title="Move down"
-              >
-                ↓
-              </button>
-              <button
-                onClick={() => void editDraft(d.id)}
-                title="Load into form for editing (then re-Append to restore)"
-              >
-                ✎ Edit
-              </button>
-              <button className="danger" onClick={() => removeDraft(d.id)} title="Remove">
-                ✕
-              </button>
-            </div>
-          ))}
+                  <Badge size="sm" variant={isEditing ? 'accent' : 'default'} className="font-mono">
+                    #{idx + 1}
+                  </Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs text-accent font-medium truncate">
+                        {d.instructionName}
+                      </span>
+                      <span className="text-2xs text-text-subtle">on</span>
+                      <span className="text-xs text-text truncate">{d.programLabel}</span>
+                      {worstSeverity === 'error' && (
+                        <span
+                          className="inline-flex items-center text-danger"
+                          title="This instruction has blocking issues"
+                          aria-label="error"
+                        >
+                          <AlertCircle size={11} />
+                        </span>
+                      )}
+                      {worstSeverity === 'warning' && (
+                        <span
+                          className="inline-flex items-center text-warning"
+                          title="This instruction has warnings"
+                          aria-label="warning"
+                        >
+                          <AlertTriangle size={11} />
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-2xs text-text-subtle truncate mt-0.5">
+                      {d.summary}
+                    </div>
+                  </div>
+                  <IconButton
+                    icon={<ChevronUp size={12} />}
+                    label="Move up"
+                    size="sm"
+                    variant="ghost"
+                    disabled={idx === 0}
+                    onClick={() => moveDraft(d.id, -1)}
+                  />
+                  <IconButton
+                    icon={<ChevronDown size={12} />}
+                    label="Move down"
+                    size="sm"
+                    variant="ghost"
+                    disabled={idx === drafts.length - 1}
+                    onClick={() => moveDraft(d.id, 1)}
+                  />
+                  <IconButton
+                    icon={<Pencil size={12} />}
+                    label="Edit this instruction"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void editDraft(d.id)}
+                  />
+                  <IconButton
+                    icon={<X size={12} />}
+                    label="Remove"
+                    size="sm"
+                    variant="danger"
+                    onClick={() => removeDraft(d.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
+      {/* ───── Build instruction ───── */}
       <div className="panel">
-        <h2>
-          {editingDraftId !== null
-            ? `Editing instruction #${drafts.findIndex((d) => d.id === editingDraftId) + 1}`
-            : `Build instruction · session ${activeSessionId.slice(0, 8)}`}
-        </h2>
-        {err && <div className="error-banner">{err}</div>}
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="m-0">
+            {editingDraftId !== null
+              ? `Editing instruction #${drafts.findIndex((d) => d.id === editingDraftId) + 1}`
+              : 'Build instruction'}
+          </h2>
+          <span className="text-2xs text-text-subtle font-mono">
+            session {activeSessionId.slice(0, 8)}
+          </span>
+        </div>
 
-        <label>Program</label>
-        <select value={programId} onChange={(e) => setProgramId(e.target.value)}>
-          <option value="">— pick a program —</option>
-          {Object.values(project.programs).map((p) => (
-            <option key={p.programId} value={p.programId}>
-              {p.label} · {p.programId.slice(0, 8)}…
-            </option>
-          ))}
-        </select>
+        {err && (
+          <div className="mb-3">
+            <ErrorState title="Build failed" message={err} />
+          </div>
+        )}
+
+        <Field label="Program">
+          <Select value={programId} onChange={(e) => setProgramId(e.target.value)}>
+            <option value="">— pick a program —</option>
+            {Object.values(project.programs).map((p) => (
+              <option key={p.programId} value={p.programId}>
+                {p.label} · {p.programId.slice(0, 8)}…
+              </option>
+            ))}
+          </Select>
+        </Field>
 
         {programId && (
-          <div className="row" style={{ marginTop: 8 }}>
-            <button
-              className={mode === 'instruction' ? 'primary' : ''}
-              onClick={() => setMode('instruction')}
-              disabled={instructions.instructions.length === 0}
-            >
-              Instruction{' '}
-              {instructions.instructions.length > 0
-                ? `(${instructions.instructions.length} via ${instructions.source})`
-                : '— none known'}
-            </button>
-            <button className={mode === 'raw' ? 'primary' : ''} onClick={() => setMode('raw')}>
-              Raw hex
-            </button>
+          <div className="mt-3">
+            <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+              <TabsList>
+                <TabsTrigger
+                  value="instruction"
+                  disabled={instructions.instructions.length === 0}
+                >
+                  Instruction{' '}
+                  {instructions.instructions.length > 0 && (
+                    <span className="ml-1 text-2xs text-text-subtle">
+                      ({instructions.instructions.length} via {instructions.source})
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="raw">Raw hex</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
         )}
 
         {mode === 'instruction' && instructions.instructions.length > 0 && (
-          <>
-            <label>Instruction</label>
-            <select
-              value={selectedIx?.name ?? ''}
-              onChange={(e) => {
-                const ix = instructions.instructions.find((i) => i.name === e.target.value);
-                setSelectedIx(ix ?? null);
-              }}
-            >
-              <option value="">— pick an instruction —</option>
-              {instructions.instructions.map((ix) => (
-                <option key={ix.name} value={ix.name}>
-                  {ix.name}
-                  {ix.args.length > 0 ? ` (${ix.args.length} args)` : ''}
-                </option>
-              ))}
-            </select>
+          <div className="mt-3 flex flex-col gap-3">
+            <Field label="Instruction">
+              <Select
+                value={selectedIx?.name ?? ''}
+                onChange={(e) => {
+                  const ix = instructions.instructions.find((i) => i.name === e.target.value);
+                  setSelectedIx(ix ?? null);
+                }}
+              >
+                <option value="">— pick an instruction —</option>
+                {instructions.instructions.map((ix) => (
+                  <option key={ix.name} value={ix.name}>
+                    {ix.name}
+                    {ix.args.length > 0 ? ` (${ix.args.length} args)` : ''}
+                  </option>
+                ))}
+              </Select>
+            </Field>
 
             {selectedIx && (
               <>
                 {selectedIx.docs && selectedIx.docs.length > 0 && (
-                  <div
-                    style={{
-                      color: 'var(--text-dim)',
-                      fontSize: 11,
-                      marginTop: 6,
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
+                  <div className="rounded bg-surface-0 border border-border px-3 py-2 text-xs text-text-muted whitespace-pre-wrap">
                     {selectedIx.docs.join('\n')}
                   </div>
                 )}
 
                 {selectedIx.args.length > 0 && (
-                  <>
-                    <label style={{ marginTop: 10 }}>Args</label>
-                    {selectedIx.args.map((arg) => (
-                      <div className="row" key={arg.name} style={{ marginTop: 4 }}>
-                        <div style={{ minWidth: 140, color: 'var(--text-dim)', fontSize: 12 }}>
-                          {arg.name}{' '}
-                          <span className="mono" style={{ fontSize: 10 }}>
-                            {typeof arg.type === 'string' ? arg.type : JSON.stringify(arg.type)}
-                          </span>
+                  <div>
+                    <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-2">
+                      Args
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {selectedIx.args.map((arg) => (
+                        <div
+                          key={arg.name}
+                          className="grid grid-cols-[160px_1fr] items-center gap-2"
+                        >
+                          <div className="text-xs text-text-muted truncate">
+                            {arg.name}
+                            <div className="text-2xs text-text-subtle font-mono">
+                              {typeof arg.type === 'string' ? arg.type : JSON.stringify(arg.type)}
+                            </div>
+                          </div>
+                          <Input
+                            value={argValues[arg.name] ?? ''}
+                            onChange={(e) =>
+                              setArgValues((p) => ({ ...p, [arg.name]: e.target.value }))
+                            }
+                            placeholder={'JSON value (e.g. 42, "foo", true)'}
+                            className="font-mono"
+                          />
                         </div>
-                        <input
-                          value={argValues[arg.name] ?? ''}
-                          onChange={(e) =>
-                            setArgValues((p) => ({ ...p, [arg.name]: e.target.value }))
-                          }
-                          placeholder={'JSON value (e.g. 42, "foo", true)'}
-                          className="mono"
-                        />
-                      </div>
-                    ))}
-                  </>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
-                <label style={{ marginTop: 10 }}>Accounts</label>
-                {selectedIx.accounts.map((acc) => (
-                  <div className="row" key={acc.name} style={{ marginTop: 4 }}>
-                    <div style={{ minWidth: 140, color: 'var(--text-dim)', fontSize: 12 }}>
-                      {acc.name}
-                      <div style={{ fontSize: 10 }}>
-                        {acc.isSigner && '· signer'} {acc.isWritable && '· mut'}{' '}
-                        {acc.optional && '· opt'}
+                <div>
+                  <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-2">
+                    Accounts
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {selectedIx.accounts.map((acc) => (
+                      <div
+                        key={acc.name}
+                        className="grid grid-cols-[160px_1fr_auto] items-center gap-2"
+                      >
+                        <div className="text-xs text-text-muted truncate">
+                          {acc.name}
+                          <div className="mt-0.5 flex gap-1 flex-wrap">
+                            {acc.isSigner && (
+                              <Badge size="sm" variant="warning">
+                                signer
+                              </Badge>
+                            )}
+                            {acc.isWritable && (
+                              <Badge size="sm" variant="accent">
+                                mut
+                              </Badge>
+                            )}
+                            {acc.optional && (
+                              <Badge size="sm" variant="outline">
+                                opt
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <Input
+                          value={namedAccounts[acc.name] ?? ''}
+                          onChange={(e) =>
+                            setNamedAccounts((p) => ({ ...p, [acc.name]: e.target.value }))
+                          }
+                          placeholder="base58 pubkey"
+                          className="font-mono"
+                          list={`acc-suggestions-${acc.name}`}
+                        />
+                        <IconButton
+                          icon={<Zap size={13} />}
+                          label="Derive ATA or PDA"
+                          size="md"
+                          variant="ghost"
+                          onClick={() =>
+                            setDeriveOpen({
+                              onPick: (addr) =>
+                                setNamedAccounts((p) => ({ ...p, [acc.name]: addr })),
+                            })
+                          }
+                        />
+                        <datalist id={`acc-suggestions-${acc.name}`}>
+                          {knownAccountSuggestions.map((s) => (
+                            <option key={s.pubkey} value={s.pubkey}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </datalist>
                       </div>
-                    </div>
-                    <input
-                      value={namedAccounts[acc.name] ?? ''}
-                      onChange={(e) =>
-                        setNamedAccounts((p) => ({ ...p, [acc.name]: e.target.value }))
-                      }
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {mode === 'raw' && (
+          <div className="mt-3 flex flex-col gap-3">
+            <Field label="Instruction data (hex)">
+              <Input
+                value={dataHex}
+                onChange={(e) => setDataHex(e.target.value)}
+                placeholder="68656c6c6f"
+                className="font-mono"
+              />
+            </Field>
+            <div>
+              <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-2">
+                Accounts
+              </div>
+              <div className="flex flex-col gap-2">
+                {accounts.map((a, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2"
+                  >
+                    <Input
+                      value={a.pubkey}
+                      onChange={(e) => updateAccount(i, { pubkey: e.target.value })}
                       placeholder="base58 pubkey"
-                      className="mono"
-                      list={`acc-suggestions-${acc.name}`}
-                      style={{ flex: '1 1 200px' }}
+                      className="font-mono"
+                      list={`raw-acc-${i}`}
                     />
-                    <button
-                      title="Derive ATA or PDA"
+                    <IconButton
+                      icon={<Zap size={13} />}
+                      label="Derive ATA or PDA"
+                      size="md"
+                      variant="ghost"
                       onClick={() =>
                         setDeriveOpen({
-                          onPick: (addr) =>
-                            setNamedAccounts((p) => ({ ...p, [acc.name]: addr })),
+                          onPick: (addr) => updateAccount(i, { pubkey: addr }),
                         })
                       }
-                    >
-                      ⛬
-                    </button>
-                    <datalist id={`acc-suggestions-${acc.name}`}>
+                    />
+                    <label className="inline-flex items-center gap-1 text-2xs text-text-muted cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={a.isSigner}
+                        onChange={(e) => updateAccount(i, { isSigner: e.target.checked })}
+                      />
+                      signer
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-2xs text-text-muted cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={a.isWritable}
+                        onChange={(e) => updateAccount(i, { isWritable: e.target.checked })}
+                      />
+                      writable
+                    </label>
+                    <IconButton
+                      icon={<X size={12} />}
+                      label="Remove"
+                      size="sm"
+                      variant="danger"
+                      onClick={() => removeAccount(i)}
+                    />
+                    <datalist id={`raw-acc-${i}`}>
                       {knownAccountSuggestions.map((s) => (
                         <option key={s.pubkey} value={s.pubkey}>
                           {s.label}
@@ -856,184 +1083,153 @@ export function TxBuilderPanel({
                     </datalist>
                   </div>
                 ))}
-              </>
-            )}
-          </>
-        )}
-
-        {mode === 'raw' && (
-          <>
-            <label>Instruction data (hex)</label>
-            <input
-              value={dataHex}
-              onChange={(e) => setDataHex(e.target.value)}
-              placeholder="68656c6c6f"
-              className="mono"
-            />
-            <label>Accounts</label>
-            {accounts.map((a, i) => (
-              <div className="row" key={i} style={{ marginTop: 6 }}>
-                <input
-                  value={a.pubkey}
-                  onChange={(e) => updateAccount(i, { pubkey: e.target.value })}
-                  placeholder="base58 pubkey"
-                  className="mono"
-                  list={`raw-acc-${i}`}
-                  style={{ flex: '1 1 240px' }}
-                />
-                <button
-                  title="Derive ATA or PDA"
-                  onClick={() =>
-                    setDeriveOpen({
-                      onPick: (addr) => updateAccount(i, { pubkey: addr }),
-                    })
-                  }
-                >
-                  ⛬
-                </button>
-                <datalist id={`raw-acc-${i}`}>
-                  {knownAccountSuggestions.map((s) => (
-                    <option key={s.pubkey} value={s.pubkey}>
-                      {s.label}
-                    </option>
-                  ))}
-                </datalist>
-                <label
-                  style={{
-                    margin: 0,
-                    textTransform: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={a.isSigner}
-                    onChange={(e) => updateAccount(i, { isSigner: e.target.checked })}
-                  />
-                  signer
-                </label>
-                <label
-                  style={{
-                    margin: 0,
-                    textTransform: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={a.isWritable}
-                    onChange={(e) => updateAccount(i, { isWritable: e.target.checked })}
-                  />
-                  writable
-                </label>
-                <button className="danger" onClick={() => removeAccount(i)}>
-                  ×
-                </button>
               </div>
-            ))}
-            <div style={{ marginTop: 8 }}>
-              <button onClick={addAccount}>+ Add account</button>
+              <Button variant="ghost" size="sm" onClick={addAccount} className="mt-2">
+                + Add account
+              </Button>
             </div>
-          </>
+          </div>
         )}
 
-        <div className="panel-section">
-          <div className="panel-section-title">Signing &amp; budget</div>
-          <label>Sign with</label>
-          <select
-            value={payerId}
-            onChange={(e) => setPayerId(e.target.value)}
-            disabled={keypairs.length === 0}
-          >
-            <option value="">— ephemeral (auto-generate + airdrop) —</option>
-            {keypairs.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.label} · {k.pubkey.slice(0, 8)}…
-              </option>
-            ))}
-          </select>
-          <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 4 }}>
-            Sandbox-only signing. Ephemeral payer recommended unless ix requires a specific signer.
+        {/* Signing & budget */}
+        <div className="mt-5 pt-4 border-t border-border">
+          <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-3">
+            Signing & budget
           </div>
 
-          <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 200px' }}>
-              <label>Compute unit limit (optional)</label>
-              <input
+          <Field
+            label="Sign with"
+            help={
+              keypairs.length === 0
+                ? 'No keypairs. Add one in the Keypairs panel.'
+                : 'Sandbox-only signing. Ephemeral payer recommended unless ix requires a specific signer.'
+            }
+          >
+            <Select
+              value={payerId}
+              onChange={(e) => setPayerId(e.target.value)}
+              disabled={keypairs.length === 0}
+            >
+              <option value="">— ephemeral (auto-generate + airdrop) —</option>
+              {keypairs.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.label} · {k.pubkey.slice(0, 8)}…
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            <Field label="Compute unit limit (optional)">
+              <Input
                 value={cuLimit}
                 onChange={(e) => setCuLimit(e.target.value)}
                 placeholder="200000"
               />
-            </div>
-            <div style={{ flex: '1 1 200px' }}>
-              <label>Payer airdrop (lamports)</label>
-              <input
+            </Field>
+            <Field label="Payer airdrop (lamports)">
+              <Input
                 value={airdrop}
                 onChange={(e) => setAirdrop(e.target.value)}
-                className="mono"
+                className="font-mono"
               />
-            </div>
+            </Field>
           </div>
         </div>
 
-        <div
-          className="actions"
-          style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}
-        >
-          <div style={{ display: 'flex', gap: 6 }}>
+        {/* Pre-flight diagnostics */}
+        {diagnostics.length > 0 && (
+          <div className="mt-4">
+            <DiagnosticsPanel issues={diagnostics} />
+          </div>
+        )}
+
+        {/* Action bar */}
+        <div className="mt-5 pt-4 border-t border-border flex flex-wrap items-center justify-between gap-2">
+          <div className="flex gap-1.5">
             {editingDraftId !== null ? (
               <>
-                <button
-                  className="primary"
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={!programId || (mode === 'instruction' && !selectedIx)}
                   onClick={() => void addToTx('replace')}
                   title="Save edits back into the draft at its current position"
                 >
-                  💾 Save edit
-                </button>
-                <button onClick={cancelEdit} title="Discard edits, leave draft as-is">
-                  ✕ Cancel edit
-                </button>
+                  <Save size={12} aria-hidden /> Save edit
+                </Button>
+                <Button variant="ghost" size="sm" onClick={cancelEdit}>
+                  Cancel
+                </Button>
               </>
             ) : (
               <>
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={!programId || (mode === 'instruction' && !selectedIx)}
                   onClick={() => void addToTx('prepend')}
-                  title="Add as first instruction in the transaction"
+                  title="Add as first instruction"
                 >
-                  ↥ Prepend to tx
-                </button>
-                <button
+                  <ArrowUpToLine size={12} aria-hidden /> Prepend
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={!programId || (mode === 'instruction' && !selectedIx)}
                   onClick={() => void addToTx('append')}
-                  title="Add as last instruction in the transaction"
+                  title="Add as last instruction"
                 >
-                  ↧ Append to tx
-                </button>
+                  <ArrowDownToLine size={12} aria-hidden /> Append
+                </Button>
               </>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
+          <div className="flex gap-1.5 items-center">
+            {blockingErrors && (
+              <span
+                className="text-2xs text-danger inline-flex items-center gap-1"
+                title="Send is blocked by errors above"
+              >
+                <AlertCircle size={11} /> blocked
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
               disabled={busy || (drafts.length === 0 && !programId)}
               onClick={simulate}
               title="Run all stacked instructions in LiteSVM read-only"
             >
-              {busy ? 'Running…' : `Simulate (${drafts.length + (programId ? 1 : 0)} ix)`}
-            </button>
-            <button
-              className="primary"
-              disabled={busy || (drafts.length === 0 && !programId)}
+              {busy ? (
+                <>
+                  <Spinner size={12} /> Running
+                </>
+              ) : (
+                <>
+                  <Play size={12} aria-hidden /> Simulate ({totalIxCount})
+                </>
+              )}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy || blockingErrors || (drafts.length === 0 && !programId)}
               onClick={submit}
-              title="Execute all stacked instructions and persist state + tx history"
+              title={
+                blockingErrors
+                  ? 'Resolve diagnostics above before submitting'
+                  : 'Execute all stacked instructions'
+              }
             >
-              {busy ? 'Submitting…' : `Submit (${drafts.length + (programId ? 1 : 0)} ix)`}
-            </button>
+              {busy ? (
+                <>
+                  <Spinner size={12} /> Submitting
+                </>
+              ) : (
+                <>Submit ({totalIxCount})</>
+              )}
+            </Button>
           </div>
         </div>
       </div>
@@ -1052,6 +1248,75 @@ export function TxBuilderPanel({
           />
         </Modal>
       )}
-    </>
+    </div>
+  );
+}
+
+function DiagnosticsPanel({ issues }: { issues: Issue[] }): JSX.Element {
+  const errors = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity === 'warning');
+  const infos = issues.filter((i) => i.severity === 'info');
+
+  return (
+    <div className="rounded-md border border-border bg-surface-0 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle font-medium">
+        Pre-flight
+        {errors.length > 0 && (
+          <Badge size="sm" variant="danger">
+            {errors.length} error{errors.length === 1 ? '' : 's'}
+          </Badge>
+        )}
+        {warnings.length > 0 && (
+          <Badge size="sm" variant="warning">
+            {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+          </Badge>
+        )}
+        {infos.length > 0 && (
+          <Badge size="sm" variant="default">
+            {infos.length} note{infos.length === 1 ? '' : 's'}
+          </Badge>
+        )}
+      </div>
+      <ul className="flex flex-col">
+        {issues.map((iss) => (
+          <li
+            key={iss.id}
+            className="flex items-start gap-2 px-3 py-2 border-b border-border last:border-b-0"
+          >
+            <span
+              className={[
+                'mt-0.5 shrink-0',
+                iss.severity === 'error'
+                  ? 'text-danger'
+                  : iss.severity === 'warning'
+                    ? 'text-warning'
+                    : 'text-text-muted',
+              ].join(' ')}
+              aria-hidden
+            >
+              {iss.severity === 'error' ? (
+                <AlertCircle size={13} />
+              ) : iss.severity === 'warning' ? (
+                <AlertTriangle size={13} />
+              ) : (
+                <Info size={13} />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium text-text leading-snug">{iss.title}</div>
+              {iss.detail && (
+                <div className="text-2xs text-text-muted leading-relaxed mt-0.5">
+                  {iss.detail}
+                </div>
+              )}
+              <div className="text-2xs text-text-subtle mt-1 font-mono">
+                rule: {iss.rule}
+                {typeof iss.ixIndex === 'number' && ` · ix #${iss.ixIndex + 1}`}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

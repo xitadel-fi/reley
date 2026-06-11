@@ -1,6 +1,15 @@
+import { Camera, GitFork, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
+import {
+  Button,
+  Empty,
+  ErrorState,
+  Field,
+  Input,
+  Spinner,
+} from '../ui';
 
 interface SnapshotRef {
   id: string;
@@ -48,7 +57,13 @@ export function SnapshotsPanel({
   }, [activeSessionId]);
 
   if (!activeSessionId) {
-    return <div className="empty">Select a session in the tree to manage snapshots.</div>;
+    return (
+      <Empty
+        icon={<Camera size={20} aria-hidden />}
+        title="No session selected"
+        description="Pick a session in the sidebar to manage snapshots."
+      />
+    );
   }
 
   const save = async (): Promise<void> => {
@@ -95,72 +110,96 @@ export function SnapshotsPanel({
     }
   };
 
+  const snaps = session?.snapshots ?? [];
+
   return (
     <div className="panel">
-      <h2>
-        Snapshots ·{' '}
-        <span style={{ color: 'var(--text-dim)', textTransform: 'none', fontSize: 12 }}>
-          {session?.name}
-        </span>
-      </h2>
-      {err && <div className="error-banner">{err}</div>}
-
-      <div className="row">
-        <input
-          placeholder="Snapshot name (e.g. pre-swap)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button className="primary" disabled={!name.trim() || busy} onClick={save}>
-          Save current state
-        </button>
+      <div className="flex items-baseline justify-between mb-2 flex-wrap gap-1">
+        <h2 className="m-0">
+          Snapshots <span className="text-sm font-normal text-text-muted">· {session?.name}</span>
+        </h2>
+        <span className="text-2xs text-text-subtle">{snaps.length} saved</span>
+      </div>
+      <div className="text-xs text-text-muted mb-3">
+        Capture and restore session state. Fork branches into a new session.
       </div>
 
-      <table className="acc-table" style={{ marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Fingerprint</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(session?.snapshots ?? []).map((s) => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
-              <td className="mono" style={{ fontSize: 11 }}>
-                {s.fingerprint ? `${s.fingerprint.slice(0, 12)}…` : '—'}
-              </td>
-              <td className="mono" style={{ fontSize: 11 }}>
-                {new Date(s.createdAt).toISOString().slice(0, 19)}
-              </td>
-              <td>
-                <button onClick={() => void restore(s.id)}>Restore</button>{' '}
-                <button
-                  onClick={async () => {
-                    const forkName = await dialogs.prompt({
-                      title: 'Fork into new session',
-                      label: 'New session name',
-                      initial: `${s.name}-fork`,
-                    });
-                    if (forkName) void fork(s.id, forkName);
-                  }}
-                >
-                  Fork
-                </button>
-              </td>
-            </tr>
-          ))}
-          {(!session || session.snapshots.length === 0) && (
-            <tr>
-              <td colSpan={4} style={{ color: 'var(--text-dim)' }}>
-                no snapshots yet
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {err && <ErrorState title="Snapshot error" message={err} />}
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mb-4">
+        <Field label="Snapshot name">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="pre-swap / after-airdrop / clean"
+          />
+        </Field>
+        <div className="self-end">
+          <Button variant="primary" size="md" disabled={!name.trim() || busy} onClick={save}>
+            {busy ? <Spinner size={12} /> : <Camera size={12} aria-hidden />} Save state
+          </Button>
+        </div>
+      </div>
+
+      {snaps.length === 0 ? (
+        <Empty
+          size="sm"
+          icon={<Camera size={18} aria-hidden />}
+          title="No snapshots yet"
+          description="Save the current state above to create one."
+        />
+      ) : (
+        <div className="rounded-md border border-border overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
+              <tr>
+                <th className="text-left font-medium px-3 py-1.5">Name</th>
+                <th className="text-left font-medium px-3 py-1.5">Fingerprint</th>
+                <th className="text-left font-medium px-3 py-1.5">Created</th>
+                <th className="px-3 py-1.5 w-44" />
+              </tr>
+            </thead>
+            <tbody>
+              {snaps.map((s) => (
+                <tr key={s.id} className="border-t border-border hover:bg-surface-1/40">
+                  <td className="px-3 py-1.5 text-text">{s.name}</td>
+                  <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
+                    {s.fingerprint ? `${s.fingerprint.slice(0, 12)}…` : '—'}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
+                    {new Date(s.createdAt).toISOString().slice(0, 19)}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex gap-1 justify-end">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => void restore(s.id)}
+                      >
+                        <RotateCcw size={11} aria-hidden /> Restore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={async () => {
+                          const forkName = await dialogs.prompt({
+                            title: 'Fork into new session',
+                            label: 'New session name',
+                            initial: `${s.name}-fork`,
+                          });
+                          if (forkName) void fork(s.id, forkName);
+                        }}
+                      >
+                        <GitFork size={11} aria-hidden /> Fork
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

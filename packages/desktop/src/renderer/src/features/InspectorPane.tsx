@@ -1,6 +1,30 @@
+import {
+  Activity as ActivityIcon,
+  Check,
+  Command,
+  Copy,
+  Globe,
+  Network,
+  Play,
+  Square,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Project, SessionMeta } from '../types';
+import {
+  Badge,
+  Button,
+  Empty,
+  ErrorState,
+  Field,
+  IconButton,
+  Input,
+  Kbd,
+  Pubkey,
+  Spinner,
+} from '../ui';
 import type { TraceNode } from './TxResultView';
 
 export type InspectorTab = 'details' | 'activity' | 'shortcuts';
@@ -45,18 +69,12 @@ export function InspectorPane({
     ? Object.values(project.programs).reduce((n, p) => n + p.accounts.length, 0)
     : 0;
 
+  const tabLabel = tab === 'details' ? 'Details' : tab === 'activity' ? 'Activity' : 'Shortcuts';
+
   return (
     <aside className="inspector">
-      <div
-        className="inspector-section-title"
-        style={{
-          padding: '4px 0 12px',
-          borderBottom: '1px solid var(--border)',
-          marginBottom: 14,
-          fontSize: 11,
-        }}
-      >
-        {tab}
+      <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold pb-3 mb-3 border-b border-border">
+        {tabLabel}
       </div>
 
       {tab === 'details' &&
@@ -68,7 +86,7 @@ export function InspectorPane({
             accountCount={accountCount}
           />
         ) : (
-          <div className="empty">No project selected.</div>
+          <Empty size="sm" title="No project" description="Open or create one to inspect." />
         ))}
 
       {tab === 'activity' && (
@@ -77,6 +95,36 @@ export function InspectorPane({
 
       {tab === 'shortcuts' && <ShortcutsTab />}
     </aside>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold mb-2">
+      {children}
+    </div>
+  );
+}
+
+function CopyChip({ value, label }: { value: string; label?: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  return (
+    <IconButton
+      icon={copied ? <Check size={11} /> : <Copy size={11} />}
+      label={label ?? `Copy ${value}`}
+      size="sm"
+      variant="ghost"
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        } catch {
+          /* ignore */
+        }
+      }}
+    />
   );
 }
 
@@ -91,15 +139,13 @@ function DetailsTab({
   activeSession: SessionMeta | null;
   accountCount: number;
 }): JSX.Element {
-  const copy = (value: string): void => {
-    void navigator.clipboard.writeText(value);
-  };
   const [rpcStatus, setRpcStatus] = useState<{ running: boolean; port: number | null }>({
     running: false,
     port: null,
   });
   const [rpcPort, setRpcPort] = useState('8899');
   const [rpcBusy, setRpcBusy] = useState(false);
+  const [rpcErr, setRpcErr] = useState<string | null>(null);
 
   const refreshRpc = (): void => {
     void api
@@ -111,11 +157,12 @@ function DetailsTab({
 
   const startRpc = async (): Promise<void> => {
     setRpcBusy(true);
+    setRpcErr(null);
     try {
       await api.call('rpcServer.start', { port: Number(rpcPort) || 8899 });
       refreshRpc();
     } catch (e) {
-      window.alert(String(e));
+      setRpcErr(String(e));
     } finally {
       setRpcBusy(false);
     }
@@ -129,211 +176,169 @@ function DetailsTab({
       setRpcBusy(false);
     }
   };
+
   const sessionUrl =
     rpcStatus.running && rpcStatus.port && activeSession
       ? `http://127.0.0.1:${rpcStatus.port}/session/${activeSession.id}`
       : null;
+
   return (
-    <>
-      <div className="inspector-section">
-        <div className="inspector-section-title">Project</div>
-        <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{project.name}</div>
-        <div className="address" style={{ display: 'flex', alignItems: 'center', marginTop: 2 }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.id.slice(0, 14)}…</span>
-          <button className="copy-btn" onClick={() => copy(project.id)}>
-            copy
-          </button>
+    <div className="flex flex-col gap-5">
+      {/* Project */}
+      <section>
+        <SectionTitle>Project</SectionTitle>
+        <div className="text-sm font-medium text-text">{project.name}</div>
+        <div className="mt-1">
+          <Pubkey value={project.id} className="text-text-muted" />
         </div>
         {project.description && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-            {project.description}
-          </div>
+          <div className="mt-2 text-xs text-text-muted leading-relaxed">{project.description}</div>
         )}
-      </div>
+      </section>
 
-      <div className="inspector-section">
-        <div className="inspector-section-title">Network</div>
-        <div style={{ fontSize: 12 }}>
-          <span className="mono">{project.network}</span>
+      {/* Network */}
+      <section>
+        <SectionTitle>Network</SectionTitle>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge size="md" variant="default" className="font-mono">
+            {project.network}
+          </Badge>
         </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            marginTop: 4,
-            fontSize: 11,
-          }}
-        >
-          <span
-            className="mono"
-            style={{
-              wordBreak: 'break-all',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              color: 'var(--text-dim)',
-            }}
-          >
+        <div className="mt-2 flex items-center gap-1">
+          <span className="font-mono text-2xs text-text-subtle truncate min-w-0 flex-1">
             {project.rpcEndpointId}
           </span>
-          <button className="copy-btn" onClick={() => copy(project.rpcEndpointId)}>
-            copy
-          </button>
+          <CopyChip value={project.rpcEndpointId} label="Copy RPC id" />
         </div>
-      </div>
+      </section>
 
-      <div className="inspector-section">
-        <div className="inspector-section-title">Counts</div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 8,
-            fontSize: 12,
-          }}
-        >
+      {/* Counts */}
+      <section>
+        <SectionTitle>Counts</SectionTitle>
+        <div className="grid grid-cols-2 gap-2">
           <StatCard label="programs" value={Object.keys(project.programs).length} />
           <StatCard label="accounts" value={accountCount} />
           <StatCard label="sessions" value={sessions.length} />
           <StatCard label="patches" value={project.patches.length} />
         </div>
-      </div>
+      </section>
 
+      {/* Active session */}
       {activeSession && (
-        <div className="inspector-section">
-          <div className="inspector-section-title">Active session</div>
-          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
-            {activeSession.name}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+        <section>
+          <SectionTitle>Active session</SectionTitle>
+          <div className="text-sm font-medium text-text">{activeSession.name}</div>
+          <div className="mt-1 text-2xs text-text-muted font-mono">
             {activeSession.accountCount} accounts · {activeSession.mutationCount} mutations
           </div>
-        </div>
+        </section>
       )}
 
-      <div className="inspector-section">
-        <div className="inspector-section-title">RPC endpoint</div>
-        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
-          Expose the active session via Solana-compatible JSON-RPC. Point @solana/web3.js or anchor
-          tests at the URL.
+      {/* RPC server */}
+      <section>
+        <SectionTitle>RPC endpoint</SectionTitle>
+        <div className="text-xs text-text-muted leading-relaxed mb-3">
+          Expose the active session via Solana-compatible JSON-RPC. Point @solana/web3.js or
+          anchor tests at the URL.
         </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            alignItems: 'center',
-            marginBottom: 6,
-            fontSize: 12,
-          }}
-        >
+
+        <div className="flex items-center gap-2 mb-2">
           <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: rpcStatus.running ? 'var(--success)' : 'var(--text-dim)',
-            }}
+            aria-hidden
+            className={[
+              'inline-block w-2 h-2 rounded-full',
+              rpcStatus.running ? 'bg-success' : 'bg-text-subtle',
+            ].join(' ')}
           />
-          <span>{rpcStatus.running ? `running on :${rpcStatus.port}` : 'stopped'}</span>
-          {rpcStatus.running && rpcStatus.port && (
-            <>
-              <button
-                className="copy-btn"
-                style={{ marginLeft: 6 }}
-                onClick={() => copy(`http://127.0.0.1:${rpcStatus.port}`)}
-                title="Copy server base URL"
-              >
-                copy endpoint
-              </button>
-              {sessionUrl && (
-                <button
-                  className="copy-btn"
-                  onClick={() => copy(sessionUrl)}
-                  title="Copy full session URL"
-                >
-                  copy session URL
-                </button>
-              )}
-            </>
-          )}
+          <span className="text-xs">
+            {rpcStatus.running ? (
+              <>
+                running on{' '}
+                <span className="font-mono">:{rpcStatus.port}</span>
+              </>
+            ) : (
+              <span className="text-text-muted">stopped</span>
+            )}
+          </span>
         </div>
-        <div className="row" style={{ gap: 4 }}>
-          <input
-            value={rpcPort}
-            onChange={(e) => setRpcPort(e.target.value)}
-            placeholder="port"
-            style={{ width: 80 }}
-            disabled={rpcStatus.running || rpcBusy}
-          />
+
+        <div className="flex items-end gap-2">
+          <Field label="Port" className="w-24">
+            <Input
+              value={rpcPort}
+              onChange={(e) => setRpcPort(e.target.value)}
+              placeholder="8899"
+              disabled={rpcStatus.running || rpcBusy}
+              sizeVariant="sm"
+            />
+          </Field>
           {rpcStatus.running ? (
-            <button className="danger" disabled={rpcBusy} onClick={() => void stopRpc()}>
-              Stop
-            </button>
+            <Button variant="danger" size="sm" disabled={rpcBusy} onClick={() => void stopRpc()}>
+              {rpcBusy ? (
+                <Spinner size={11} />
+              ) : (
+                <>
+                  <Square size={11} aria-hidden /> Stop
+                </>
+              )}
+            </Button>
           ) : (
-            <button className="primary" disabled={rpcBusy} onClick={() => void startRpc()}>
-              Start
-            </button>
+            <Button variant="primary" size="sm" disabled={rpcBusy} onClick={() => void startRpc()}>
+              {rpcBusy ? (
+                <Spinner size={11} />
+              ) : (
+                <>
+                  <Play size={11} aria-hidden /> Start
+                </>
+              )}
+            </Button>
           )}
         </div>
+
+        {rpcErr && (
+          <div className="mt-2">
+            <ErrorState title="RPC failed to start" message={rpcErr} />
+          </div>
+        )}
+
+        {rpcStatus.running && rpcStatus.port && (
+          <div className="mt-3 flex items-center gap-1.5 text-xs">
+            <Globe size={11} className="text-text-muted" aria-hidden />
+            <span className="font-mono text-text-muted truncate min-w-0 flex-1">
+              http://127.0.0.1:{rpcStatus.port}
+            </span>
+            <CopyChip value={`http://127.0.0.1:${rpcStatus.port}`} label="Copy server URL" />
+          </div>
+        )}
+
         {sessionUrl && (
-          <div style={{ marginTop: 8 }}>
-            <div className="inspector-section-title">Session URL</div>
-            <div
-              style={{
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-                padding: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span
-                className="mono"
-                style={{
-                  fontSize: 10,
-                  wordBreak: 'break-all',
-                  flex: 1,
-                  color: 'var(--text)',
-                }}
-              >
+          <div className="mt-3">
+            <SectionTitle>Session URL</SectionTitle>
+            <div className="flex items-center gap-1 rounded border border-border bg-bg p-2">
+              <Network size={11} className="text-text-muted shrink-0" aria-hidden />
+              <span className="font-mono text-2xs text-text break-all flex-1 min-w-0">
                 {sessionUrl}
               </span>
-              <button className="copy-btn" onClick={() => copy(sessionUrl)}>
-                copy
-              </button>
+              <CopyChip value={sessionUrl} label="Copy session URL" />
             </div>
-            <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-dim)' }}>
-              Example: <span className="mono">new Connection("{sessionUrl}")</span>
+            <div className="mt-2 text-2xs text-text-subtle">
+              Example:{' '}
+              <code className="font-mono text-text-muted">
+                new Connection(&quot;{sessionUrl}&quot;)
+              </code>
             </div>
           </div>
         )}
-      </div>
-    </>
+      </section>
+    </div>
   );
 }
 
 function StatCard({ label, value }: { label: string; value: number }): JSX.Element {
   return (
-    <div
-      style={{
-        background: 'var(--bg-elev)',
-        border: '1px solid var(--border)',
-        borderRadius: 4,
-        padding: 8,
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 600 }}>{value}</div>
-      <div
-        style={{
-          fontSize: 10,
-          color: 'var(--text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: 1,
-        }}
-      >
-        {label}
-      </div>
+    <div className="rounded border border-border bg-surface-1 px-2.5 py-2">
+      <div className="text-lg font-semibold leading-none text-text">{value}</div>
+      <div className="mt-1 text-2xs uppercase tracking-wider text-text-subtle">{label}</div>
     </div>
   );
 }
@@ -347,7 +352,6 @@ function ActivityTab({
 }): JSX.Element {
   const clear = async (): Promise<void> => {
     if (!activeSessionId) return;
-    if (!window.confirm) return;
     try {
       await api.call('tx.historyClear', { sessionId: activeSessionId });
     } catch {
@@ -355,72 +359,68 @@ function ActivityTab({
     }
   };
   if (!activeSessionId) {
-    return <div className="empty">Pick a session in the sidebar to see its activity.</div>;
+    return (
+      <Empty
+        size="sm"
+        icon={<ActivityIcon size={18} aria-hidden />}
+        title="No session selected"
+        description="Pick a session in the sidebar to see its activity."
+      />
+    );
   }
   if (activity.length === 0) {
     return (
-      <div className="empty" style={{ padding: 12, fontStyle: 'normal' }}>
-        No transactions yet for this session. Use Tx Builder → Simulate or Submit.
-      </div>
+      <Empty
+        size="sm"
+        icon={<ActivityIcon size={18} aria-hidden />}
+        title="No transactions yet"
+        description="Use Tx Builder → Simulate or Submit to populate."
+      />
     );
   }
   return (
-    <>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <div className="inspector-section-title">Recent transactions</div>
-        <button
-          style={{ padding: '1px 6px', fontSize: 10 }}
-          onClick={() => void clear()}
-          title="Clear activity"
-        >
-          clear
-        </button>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <SectionTitle>Recent transactions</SectionTitle>
+        <Button variant="ghost" size="xs" onClick={() => void clear()} title="Clear activity">
+          <Trash2 size={11} aria-hidden /> clear
+        </Button>
       </div>
-      {activity.map((tx) => (
-        <div key={tx.id} className="activity-item">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              minWidth: 0,
-            }}
+
+      <ul className="flex flex-col gap-1">
+        {activity.map((tx) => (
+          <li
+            key={tx.id}
+            className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-surface-1/50"
           >
-            <span
-              className={`activity-status ${tx.success ? 'success' : 'failure'}`}
-            />
-            <span className="mono" style={{ fontSize: 11 }}>
-              {tx.trace.programId.slice(0, 4)}…{tx.trace.programId.slice(-4)}
-            </span>
-          </div>
-          <div
-            style={{
-              color: 'var(--text-dim)',
-              fontFamily: 'JetBrains Mono, ui-monospace, Menlo, monospace',
-              fontSize: 11,
-              textAlign: 'right',
-            }}
-          >
-            cu {tx.cuConsumed.toString()}
-            <br />
-            <span style={{ fontSize: 9 }}>
-              {new Date(tx.submittedAt).toISOString().slice(11, 19)}
-            </span>
-          </div>
-        </div>
-      ))}
-    </>
+            <div className="flex items-center gap-2 min-w-0">
+              {tx.success ? (
+                <Check size={12} className="text-success shrink-0" aria-label="success" />
+              ) : (
+                <XCircle size={12} className="text-danger shrink-0" aria-label="failure" />
+              )}
+              <Pubkey value={tx.trace.programId} className="text-text-muted" />
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-2xs text-text-muted">
+                cu {tx.cuConsumed.toString()}
+              </div>
+              <div className="font-mono text-2xs text-text-subtle">
+                {new Date(tx.submittedAt).toISOString().slice(11, 19)}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 function ShortcutsTab(): JSX.Element {
   const shortcuts: Array<{ keys: string; what: string }> = [
+    { keys: '⌘K', what: 'Open command palette' },
+    { keys: '⌘B', what: 'Toggle left sidebar' },
+    { keys: '⌘⌥B', what: 'Toggle right inspector' },
     { keys: 'Right-click', what: 'Show actions for project / program / account / session' },
     { keys: 'Click account', what: 'Open Inspector modal' },
     { keys: 'Click session', what: 'Set as active session' },
@@ -444,36 +444,34 @@ function ShortcutsTab(): JSX.Element {
     },
   ];
   return (
-    <>
-      <div className="inspector-section">
-        <div className="inspector-section-title">Shortcuts</div>
-        {shortcuts.map((s) => (
-          <div
-            key={s.keys}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '4px 0',
-              fontSize: 11,
-            }}
-          >
-            <span className="kbd">{s.keys}</span>
-            <span style={{ color: 'var(--text-dim)', textAlign: 'right', flex: 1, marginLeft: 8 }}>
-              {s.what}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="inspector-section">
-        <div className="inspector-section-title">Concepts</div>
-        {concepts.map((c) => (
-          <div key={c.title} style={{ marginTop: 8, fontSize: 12 }}>
-            <div style={{ color: 'var(--text)', fontWeight: 500 }}>{c.title}</div>
-            <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 2 }}>{c.body}</div>
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="flex flex-col gap-5">
+      <section>
+        <SectionTitle>
+          <span className="inline-flex items-center gap-1.5">
+            <Command size={11} aria-hidden /> Shortcuts
+          </span>
+        </SectionTitle>
+        <ul className="flex flex-col gap-1">
+          {shortcuts.map((s) => (
+            <li key={s.keys} className="flex items-center gap-3 py-1 text-xs">
+              <Kbd className="shrink-0">{s.keys}</Kbd>
+              <span className="text-text-muted flex-1 min-w-0">{s.what}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <SectionTitle>Concepts</SectionTitle>
+        <div className="flex flex-col gap-3">
+          {concepts.map((c) => (
+            <div key={c.title}>
+              <div className="text-xs font-medium text-text">{c.title}</div>
+              <div className="text-xs text-text-muted mt-0.5 leading-relaxed">{c.body}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
+

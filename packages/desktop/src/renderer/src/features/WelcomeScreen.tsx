@@ -1,7 +1,23 @@
-import { useEffect, useState } from 'react';
+import { Clock, FolderOpen, FolderPlus, Pin, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
 import { useToast } from '../components/Toast';
+import {
+  Badge,
+  Button,
+  Empty,
+  Field,
+  Input,
+  Kbd,
+  Select,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Spinner,
+} from '../ui';
 
 interface RecentProject {
   path: string;
@@ -17,10 +33,35 @@ interface RpcEndpoint {
 }
 
 const isMac = api.platform === 'darwin';
+const cmdKey = isMac ? '⌘' : 'Ctrl';
+
+function formatRelative(ts: number): string {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+
+function networkBadgeVariant(net: string): 'success' | 'warning' | 'accent' | 'default' {
+  if (net === 'mainnet-beta') return 'success';
+  if (net === 'devnet') return 'warning';
+  if (net === 'testnet') return 'accent';
+  return 'default';
+}
 
 export function WelcomeScreen(): JSX.Element {
   const [recents, setRecents] = useState<RecentProject[]>([]);
   const [rpcEndpoints, setRpcEndpoints] = useState<RpcEndpoint[]>([]);
+  const [loadingRecents, setLoadingRecents] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newNetwork, setNewNetwork] = useState<'mainnet-beta' | 'devnet' | 'testnet'>(
@@ -41,12 +82,24 @@ export function WelcomeScreen(): JSX.Element {
       if (e[0] && !e.find((ep) => ep.id === newRpc)) setNewRpc(e[0].id);
     } catch (err) {
       toast.error(String(err));
+    } finally {
+      setLoadingRecents(false);
     }
   };
 
   useEffect(() => {
     void reload();
   }, []);
+
+  const filteredRpcs = useMemo(
+    () => rpcEndpoints.filter((r) => r.network === newNetwork),
+    [rpcEndpoints, newNetwork],
+  );
+
+  useEffect(() => {
+    if (filteredRpcs.length === 0) return;
+    if (!filteredRpcs.find((r) => r.id === newRpc)) setNewRpc(filteredRpcs[0]!.id);
+  }, [filteredRpcs, newRpc]);
 
   const openPicker = async (): Promise<void> => {
     try {
@@ -57,7 +110,7 @@ export function WelcomeScreen(): JSX.Element {
     }
   };
 
-  const newProject = async (): Promise<void> => {
+  const submitNew = async (): Promise<void> => {
     if (!newName.trim()) {
       toast.error('Project name required');
       return;
@@ -69,6 +122,8 @@ export function WelcomeScreen(): JSX.Element {
         network: newNetwork,
         rpcEndpointId: newRpc,
       });
+      setSheetOpen(false);
+      setNewName('');
     } catch (err) {
       toast.error(String(err));
     } finally {
@@ -101,79 +156,253 @@ export function WelcomeScreen(): JSX.Element {
   };
 
   return (
-    <div className="welcome">
-      <div className="welcome-titlebar" />
+    <div className="flex flex-col h-screen bg-bg text-text">
+      {/* drag region */}
+      <div
+        className="shrink-0 h-7"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
 
-      <div className="welcome-grid">
-        <div className="welcome-hero">
-          <h1>Relay</h1>
-          <p className="welcome-sub">Solana program sandbox · LiteSVM · per-project workspaces</p>
+      <div className="flex-1 overflow-auto">
+        <div className="mx-auto w-full max-w-3xl px-10 pt-16 pb-20">
+          {/* Primary actions */}
+          <section className="mb-14">
+            <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold mb-4">
+              Get started
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                size="lg"
+                variant="primary"
+                onClick={() => void openPicker()}
+                className="gap-2 min-w-[180px] justify-start"
+              >
+                <FolderOpen size={15} aria-hidden />
+                <span className="flex-1 text-left">Open Project…</span>
+                <Kbd className="ml-1 bg-white/15 border-white/25 text-white/90">{cmdKey}O</Kbd>
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => setSheetOpen(true)}
+                className="gap-2 min-w-[180px] justify-start"
+              >
+                <FolderPlus size={15} aria-hidden />
+                <span className="flex-1 text-left">New Project…</span>
+              </Button>
+            </div>
+          </section>
 
-          <div className="welcome-actions">
-            <button className="primary big" onClick={() => void openPicker()}>
-              Open Project…
-            </button>
-            <span className="welcome-shortcut">{isMac ? '⌘O' : 'Ctrl+O'}</span>
-          </div>
+          {/* Recents */}
+          <section>
+            <div className="flex items-baseline justify-between mb-4">
+              <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold">
+                Recent projects
+              </div>
+              {recents.length > 0 && (
+                <div className="text-2xs text-text-subtle font-mono">
+                  {recents.length}
+                </div>
+              )}
+            </div>
 
-          <div className="welcome-new">
-            <div className="welcome-new-title">New project</div>
-            <div className="welcome-new-row">
-              <input
-                placeholder="Project name"
+            {loadingRecents ? (
+              <div className="py-10 flex justify-center">
+                <Spinner label="Loading recents…" />
+              </div>
+            ) : recents.length === 0 ? (
+              <Empty
+                icon={<Clock size={24} aria-hidden />}
+                title="No recent projects"
+                description="Open or create a project to get started."
+                action={
+                  <Button variant="outline" size="sm" onClick={() => setSheetOpen(true)}>
+                    Create your first
+                  </Button>
+                }
+              />
+            ) : (
+              <ul className="flex flex-col rounded-lg border border-border overflow-hidden divide-y divide-border">
+                {recents.map((r) => (
+                  <li key={r.path}>
+                    <RecentRow
+                      project={r}
+                      onOpen={() => void openRecent(r)}
+                      onRemove={() => void removeRecent(r)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* New project sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="right" className="w-[460px] gap-5">
+          <SheetHeader>
+            <SheetTitle>New project</SheetTitle>
+            <SheetDescription>
+              Relay writes <code className="font-mono text-text">.relay.json</code> +{' '}
+              <code className="font-mono text-text">.relay/</code> in the folder you pick.
+            </SheetDescription>
+          </SheetHeader>
+
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitNew();
+            }}
+          >
+            <Field label="Project name" required htmlFor="welcome-name">
+              <Input
+                id="welcome-name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                placeholder="my-program-sandbox"
+                autoFocus
+                sizeVariant="lg"
               />
-              <select
+            </Field>
+
+            <Field label="Network" htmlFor="welcome-network">
+              <Select
+                id="welcome-network"
                 value={newNetwork}
+                sizeVariant="lg"
                 onChange={(e) => setNewNetwork(e.target.value as typeof newNetwork)}
               >
                 <option value="mainnet-beta">mainnet-beta</option>
                 <option value="devnet">devnet</option>
                 <option value="testnet">testnet</option>
-              </select>
-              <select value={newRpc} onChange={(e) => setNewRpc(e.target.value)}>
-                {rpcEndpoints.map((r) => (
+              </Select>
+            </Field>
+
+            <Field
+              label="RPC endpoint"
+              htmlFor="welcome-rpc"
+              help={
+                filteredRpcs.length === 0
+                  ? 'No endpoints registered for this network yet.'
+                  : undefined
+              }
+            >
+              <Select
+                id="welcome-rpc"
+                value={newRpc}
+                sizeVariant="lg"
+                onChange={(e) => setNewRpc(e.target.value)}
+                disabled={filteredRpcs.length === 0}
+              >
+                {filteredRpcs.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.label}
                   </option>
                 ))}
-              </select>
-              <button
-                className="primary"
-                disabled={creating || !newName.trim()}
-                onClick={() => void newProject()}
-              >
-                {creating ? 'Creating…' : 'Create…'}
-              </button>
-            </div>
-            <p className="welcome-hint">
-              You'll pick a folder. Relay writes <code>.relay.json</code> + <code>.relay/</code>{' '}
-              inside.
-            </p>
-          </div>
-        </div>
+              </Select>
+            </Field>
 
-        <div className="welcome-recents">
-          <div className="welcome-recents-title">Recent</div>
-          {recents.length === 0 && <div className="welcome-empty">No recent projects.</div>}
-          {recents.map((r) => (
-            <div className="welcome-recent" key={r.path}>
-              <button className="welcome-recent-main" onClick={() => void openRecent(r)}>
-                <div className="welcome-recent-name">{r.name}</div>
-                <div className="welcome-recent-path">{r.path}</div>
-              </button>
-              <button
-                className="welcome-recent-remove"
-                title="Remove from recents"
-                onClick={() => void removeRecent(r)}
-              >
-                ✕
-              </button>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" onClick={() => setSheetOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={creating || !newName.trim()}>
+                {creating ? (
+                  <>
+                    <Spinner size={12} /> Creating…
+                  </>
+                ) : (
+                  'Pick folder & create'
+                )}
+              </Button>
             </div>
-          ))}
-        </div>
-      </div>
+          </form>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
+
+function RecentRow({
+  project,
+  onOpen,
+  onRemove,
+}: {
+  project: RecentProject;
+  onOpen: () => void;
+  onRemove: () => void;
+}): JSX.Element {
+  const [meta, setMeta] = useState<{ network?: string; pinned?: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const m = await api.call<{ network?: string; pinned?: boolean } | null>(
+          'app.recentProjectMeta',
+          { path: project.path },
+        );
+        if (!cancelled) setMeta(m ?? null);
+      } catch {
+        /* optional endpoint */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.path]);
+
+  return (
+    <div
+      className={[
+        'group relative flex items-stretch',
+        'bg-transparent hover:bg-surface-1 transition-colors duration-fast ease-out',
+      ].join(' ')}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex flex-1 min-w-0 items-center gap-3 text-left bg-transparent border-0 pl-4 pr-3 py-3 focus-visible:outline-none"
+      >
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-1 text-text-muted group-hover:bg-surface-2 group-hover:text-text transition-colors">
+          <FolderOpen size={16} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-medium text-text truncate">{project.name}</span>
+            {meta?.network && (
+              <Badge size="sm" variant={networkBadgeVariant(meta.network)}>
+                {meta.network}
+              </Badge>
+            )}
+            {meta?.pinned && <Pin size={11} className="text-accent" aria-label="pinned" />}
+          </div>
+          <div className="text-2xs text-text-subtle font-mono truncate mt-0.5">{project.path}</div>
+        </div>
+        <span className="text-2xs text-text-subtle whitespace-nowrap ml-2 shrink-0">
+          {formatRelative(project.lastOpened)}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label="Remove from recents"
+        title="Remove from recents"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className={[
+          'shrink-0 inline-flex items-center justify-center w-11 border-l border-border/60',
+          'text-text-subtle hover:text-danger hover:bg-danger/10',
+          'transition-colors duration-fast ease-out',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/70',
+        ].join(' ')}
+      >
+        <Trash2 size={15} strokeWidth={1.8} aria-hidden />
+      </button>
+    </div>
+  );
+}
+

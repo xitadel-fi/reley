@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Modal } from './Modal';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  Input,
+} from '../ui';
 
 export interface PromptOptions {
   title: string;
@@ -21,30 +31,37 @@ export function PromptModal({
 }): JSX.Element {
   const [value, setValue] = useState(options.initial ?? '');
   return (
-    <Modal onClose={onCancel}>
-      <h3>{options.title}</h3>
-      <label>{options.label}</label>
-      <input
-        autoFocus
-        value={value}
-        placeholder={options.placeholder}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && value.trim()) onConfirm(value.trim());
-          if (e.key === 'Escape') onCancel();
-        }}
-      />
-      <div className="actions">
-        <button onClick={onCancel}>Cancel</button>
-        <button
-          className={options.danger ? 'danger' : 'primary'}
-          disabled={!value.trim()}
-          onClick={() => onConfirm(value.trim())}
-        >
-          {options.confirmText ?? 'OK'}
-        </button>
-      </div>
-    </Modal>
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>{options.title}</DialogTitle>
+        </DialogHeader>
+        <Field label={options.label}>
+          <Input
+            autoFocus
+            value={value}
+            placeholder={options.placeholder}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && value.trim()) onConfirm(value.trim());
+              if (e.key === 'Escape') onCancel();
+            }}
+          />
+        </Field>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant={options.danger ? 'danger' : 'primary'}
+            disabled={!value.trim()}
+            onClick={() => onConfirm(value.trim())}
+          >
+            {options.confirmText ?? 'OK'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -64,15 +81,21 @@ export function ConfirmModal({
   onCancel: () => void;
 }): JSX.Element {
   return (
-    <Modal onClose={onCancel}>
-      <h3>{title}</h3>
-      <div style={{ margin: '8px 0 16px', color: 'var(--text-dim)' }}>{message}</div>
-      <div className="actions">
-        <button onClick={onCancel}>Cancel</button>
-        <button className={danger ? 'danger' : 'primary'} onClick={onConfirm}>
-          {confirmText ?? 'Confirm'}
-        </button>
-      </div>
-    </Modal>
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>
+            {confirmText ?? 'Confirm'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

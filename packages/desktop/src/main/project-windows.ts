@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { cp, existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { BrowserWindow, shell } from 'electron';
 import { getAppStore } from './app-store';
+
+const cpAsync = promisify(cp);
 import {
   shutdownWorkerForWindow,
   spawnWorkerForWindow,
@@ -11,7 +14,8 @@ import {
 } from './workerMgr';
 
 const RELAY_MANIFEST = '.relay.json';
-const PROJECT_FORMAT_VERSION = 1;
+// Keep in sync with STORE_FORMAT_VERSION in @relay/core/store/persistence.ts.
+const PROJECT_FORMAT_VERSION = 2;
 
 const windowToPath = new Map<number, string>();
 const pathToWindow = new Map<string, number>();
@@ -39,8 +43,15 @@ export async function createProjectFolder(
   await mkdir(join(relayDir, 'blobs'), { recursive: true });
   await mkdir(join(relayDir, 'keypairs'), { recursive: true });
   await mkdir(join(relayDir, 'idls'), { recursive: true });
+  // Per-entity dirs for v2 thin manifest layout.
+  await mkdir(join(relayDir, 'programs'), { recursive: true });
+  await mkdir(join(relayDir, 'tx-templates'), { recursive: true });
+  await mkdir(join(relayDir, 'workflows'), { recursive: true });
+  await mkdir(join(relayDir, 'scripts'), { recursive: true });
+  await mkdir(join(relayDir, 'patches'), { recursive: true });
 
   const now = Date.now();
+  // v2 thin manifest: meta only. Sub-collections live in `.relay/*` folders.
   const manifest = {
     formatVersion: PROJECT_FORMAT_VERSION,
     id: cryptoRandomId(),
@@ -48,17 +59,37 @@ export async function createProjectFolder(
     description: opts.description ?? '',
     network: opts.network,
     rpcEndpointId: opts.rpcEndpointId,
+    sessionIds: [],
+    keypairRefs: [],
     createdAt: now,
     lastOpenedAt: now,
-    programs: {},
-    patches: [],
-    keypairRefs: [],
-    scripts: [],
-    txTemplates: [],
-    workflows: [],
-    idlBindings: {},
+    pinned: false,
   };
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+  // Ship Claude Code skill bundle alongside every new project so an agent
+  // working in this folder gets Relay-specific orientation automatically.
+  await copyBundledSkills(projectPath);
+}
+
+/**
+ * Copy bundled SKILL.md files into `<projectRoot>/.claude/skills/`. Idempotent
+ * (skips overwrite if a same-named skill dir already exists). Errors are
+ * swallowed — missing skills shouldn't block project creation.
+ */
+async function copyBundledSkills(projectPath: string): Promise<void> {
+  try {
+    // Bundled skills live at <appRoot>/skills/. From __dirname (out/main) the
+    // skills dir resolves at ../../skills relative to the built file. In the
+    // packaged .app this maps to Contents/Resources/app/skills/.
+    const src = join(__dirname, '..', '..', 'skills');
+    if (!existsSync(src)) return;
+    const dest = join(projectPath, '.claude', 'skills');
+    await mkdir(dest, { recursive: true });
+    await cpAsync(src, dest, { recursive: true, force: false, errorOnExist: false });
+  } catch {
+    /* non-fatal: project still usable without skills */
+  }
 }
 
 export function isProjectFolder(p: string): boolean {

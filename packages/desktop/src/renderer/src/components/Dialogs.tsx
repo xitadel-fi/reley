@@ -1,5 +1,16 @@
+import { X } from 'lucide-react';
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { Modal } from './Modal';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  Input,
+} from '../ui';
 
 interface PromptOpts {
   title: string;
@@ -62,49 +73,64 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
     <Ctx.Provider value={{ prompt, confirm }}>
       {children}
 
-      {promptState && (
-        <Modal onClose={() => closePrompt(null)}>
-          <h3>{promptState.title}</h3>
-          {promptState.label && <label>{promptState.label}</label>}
-          <input
-            autoFocus
-            value={promptValue}
-            placeholder={promptState.placeholder}
-            onChange={(e) => setPromptValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') closePrompt(promptValue);
-              if (e.key === 'Escape') closePrompt(null);
-            }}
-          />
-          <div className="actions">
-            <button onClick={() => closePrompt(null)}>Cancel</button>
-            <button
-              className={promptState.danger ? 'danger' : 'primary'}
-              onClick={() => closePrompt(promptValue)}
-            >
-              {promptState.confirmText ?? 'OK'}
-            </button>
-          </div>
-        </Modal>
-      )}
+      <Dialog open={!!promptState} onOpenChange={(o) => !o && closePrompt(null)}>
+        <DialogContent size="md">
+          {promptState && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{promptState.title}</DialogTitle>
+              </DialogHeader>
+              <Field label={promptState.label}>
+                <Input
+                  autoFocus
+                  value={promptValue}
+                  placeholder={promptState.placeholder}
+                  onChange={(e) => setPromptValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') closePrompt(promptValue);
+                    if (e.key === 'Escape') closePrompt(null);
+                  }}
+                />
+              </Field>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => closePrompt(null)}>
+                  <X size={12} aria-hidden /> Cancel
+                </Button>
+                <Button
+                  variant={promptState.danger ? 'danger' : 'primary'}
+                  onClick={() => closePrompt(promptValue)}
+                >
+                  {promptState.confirmText ?? 'OK'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
-      {confirmState && (
-        <Modal onClose={() => closeConfirm(false)}>
-          <h3>{confirmState.title}</h3>
-          <div style={{ margin: '8px 0 16px', color: 'var(--text-dim)' }}>
-            {confirmState.message}
-          </div>
-          <div className="actions">
-            <button onClick={() => closeConfirm(false)}>Cancel</button>
-            <button
-              className={confirmState.danger ? 'danger' : 'primary'}
-              onClick={() => closeConfirm(true)}
-            >
-              {confirmState.confirmText ?? 'Confirm'}
-            </button>
-          </div>
-        </Modal>
-      )}
+      <Dialog open={!!confirmState} onOpenChange={(o) => !o && closeConfirm(false)}>
+        <DialogContent size="md">
+          {confirmState && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{confirmState.title}</DialogTitle>
+                <DialogDescription>{confirmState.message}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => closeConfirm(false)}>
+                  <X size={12} aria-hidden /> Cancel
+                </Button>
+                <Button
+                  variant={confirmState.danger ? 'danger' : 'primary'}
+                  onClick={() => closeConfirm(true)}
+                >
+                  {confirmState.confirmText ?? 'Confirm'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </Ctx.Provider>
   );
 }
@@ -112,7 +138,6 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
 export function useDialogs(): DialogsApi {
   const c = useContext(Ctx);
   if (!c) {
-    // Fallback to noop so components don't crash when used outside provider.
     return {
       prompt: async () => null,
       confirm: async () => false,

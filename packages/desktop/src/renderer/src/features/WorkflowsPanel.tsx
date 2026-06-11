@@ -1,10 +1,39 @@
-import { useEffect, useState } from 'react';
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Clock,
+  Droplets,
+  Play,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Save,
+  Send,
+  SkipForward,
+  Trash2,
+  X,
+  XCircle,
+} from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import type { Project } from '../types';
+import {
+  Badge,
+  Button,
+  Empty,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  Spinner,
+} from '../ui';
 
 type StepKind = 'tx' | 'airdrop' | 'warpTime' | 'warpSlot' | 'expireBlockhash' | 'resetSession';
 
@@ -118,6 +147,32 @@ const prettyKind = (k: StepKind): string => {
       return 'Reset session';
   }
 };
+
+const stepIcon = (k: StepKind, size = 13): ReactNode => {
+  switch (k) {
+    case 'tx':
+      return <Send size={size} aria-hidden />;
+    case 'airdrop':
+      return <Droplets size={size} aria-hidden />;
+    case 'warpTime':
+      return <Clock size={size} aria-hidden />;
+    case 'warpSlot':
+      return <SkipForward size={size} aria-hidden />;
+    case 'expireBlockhash':
+      return <RefreshCcw size={size} aria-hidden />;
+    case 'resetSession':
+      return <RotateCcw size={size} aria-hidden />;
+  }
+};
+
+const STEP_KINDS: StepKind[] = [
+  'tx',
+  'airdrop',
+  'warpTime',
+  'warpSlot',
+  'expireBlockhash',
+  'resetSession',
+];
 
 export function WorkflowsPanel({
   project,
@@ -241,56 +296,71 @@ export function WorkflowsPanel({
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-4">
       <div className="panel">
-        <h2>Workflows</h2>
-        <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 10 }}>
-          A workflow is a named sequence of steps run against a session. Steps include tx submits,
-          airdrops, time warps, blockhash expiry, session reset.
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="m-0">Workflows</h2>
+          <span className="text-2xs text-text-subtle">{workflows.length} saved</span>
         </div>
-        <div className="row">
-          <button className="primary" onClick={() => void newWorkflow()}>
-            + New workflow
-          </button>
+        <div className="text-xs text-text-muted mb-3">
+          A named sequence of steps run against a session — tx submits, airdrops, time warps,
+          blockhash expiry, session reset.
+        </div>
+        <div>
+          <Button variant="primary" size="sm" onClick={() => void newWorkflow()}>
+            <Plus size={12} aria-hidden /> New workflow
+          </Button>
         </div>
         {workflows.length === 0 ? (
-          <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 12 }}>
-            no workflows yet
+          <div className="mt-3">
+            <Empty
+              size="sm"
+              title="No workflows yet"
+              description="Create one to chain tx submits, airdrops, warps, and session resets."
+            />
           </div>
         ) : (
-          <table className="acc-table" style={{ marginTop: 12 }}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Steps</th>
-                <th>Updated</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {workflows.map((w) => (
-                <tr key={w.id}>
-                  <td>{w.name}</td>
-                  <td>{w.steps.length}</td>
-                  <td className="mono" style={{ fontSize: 11 }}>
-                    {new Date(w.updatedAt).toISOString().slice(0, 19)}
-                  </td>
-                  <td>
-                    <button onClick={() => void run(w)}>Run</button>{' '}
-                    <button onClick={() => setEditing(w)}>Edit</button>{' '}
-                    <button className="danger" onClick={() => void remove(w.id)}>
-                      Delete
-                    </button>
-                  </td>
+          <div className="mt-3 rounded-md border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
+                <tr>
+                  <th className="text-left font-medium px-3 py-1.5">Name</th>
+                  <th className="text-left font-medium px-3 py-1.5 w-16">Steps</th>
+                  <th className="text-left font-medium px-3 py-1.5">Updated</th>
+                  <th className="px-3 py-1.5 w-40" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {workflows.map((w) => (
+                  <tr key={w.id} className="border-t border-border hover:bg-surface-1/50">
+                    <td className="px-3 py-1.5 text-text">{w.name}</td>
+                    <td className="px-3 py-1.5 text-text-muted">{w.steps.length}</td>
+                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
+                      {new Date(w.updatedAt).toISOString().slice(0, 19)}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="outline" size="xs" onClick={() => void run(w)}>
+                          <Play size={11} aria-hidden /> Run
+                        </Button>
+                        <Button variant="ghost" size="xs" onClick={() => setEditing(w)}>
+                          Edit
+                        </Button>
+                        <Button variant="danger" size="xs" onClick={() => void remove(w.id)}>
+                          <Trash2 size={11} aria-hidden />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {result && <RunResultView result={result} />}
-    </>
+    </div>
   );
 }
 
@@ -344,105 +414,137 @@ function WorkflowEditor({
   }>;
 
   return (
-    <>
+    <div className="flex flex-col gap-4">
       <div className="panel">
-        <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0 }}>Workflow editor</h2>
-          <div className="row">
-            <button onClick={onCancel}>Back</button>
-            <button onClick={onRun} disabled={busy}>
-              ▶ Run
-            </button>
-            <button className="primary" onClick={() => void onSave()} disabled={busy}>
-              {busy ? 'Saving…' : 'Save'}
-            </button>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <IconButton
+              icon={<ArrowLeft size={14} />}
+              label="Back"
+              size="sm"
+              variant="ghost"
+              onClick={onCancel}
+            />
+            <h2 className="m-0">{workflow.id ? 'Edit workflow' : 'New workflow'}</h2>
+          </div>
+          <div className="flex gap-1.5">
+            <Button variant="outline" size="sm" onClick={onRun} disabled={busy}>
+              <Play size={12} aria-hidden /> Run
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => void onSave()} disabled={busy}>
+              {busy ? (
+                <>
+                  <Spinner size={12} /> Saving
+                </>
+              ) : (
+                <>
+                  <Save size={12} aria-hidden /> Save
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
-        <label>Name</label>
-        <input value={workflow.name} onChange={(e) => update({ name: e.target.value })} />
-        <label>Description</label>
-        <input
-          value={workflow.description}
-          onChange={(e) => update({ description: e.target.value })}
-        />
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-3">
+          <Field label="Name">
+            <Input value={workflow.name} onChange={(e) => update({ name: e.target.value })} />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={workflow.description}
+              onChange={(e) => update({ description: e.target.value })}
+              placeholder="What does this workflow do?"
+            />
+          </Field>
+        </div>
 
-        <div
-          style={{
-            marginTop: 14,
-            paddingTop: 10,
-            borderTop: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ margin: 0 }}>Steps ({workflow.steps.length})</h2>
-            <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
-              <button onClick={() => addStep('tx')}>+ Tx</button>
-              <button onClick={() => addStep('airdrop')}>+ Airdrop</button>
-              <button onClick={() => addStep('warpTime')}>+ Warp time</button>
-              <button onClick={() => addStep('warpSlot')}>+ Warp slot</button>
-              <button onClick={() => addStep('expireBlockhash')}>+ Expire bh</button>
-              <button onClick={() => addStep('resetSession')}>+ Reset</button>
+        <div className="mt-5 pt-4 border-t border-border">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="m-0">
+              Steps <span className="text-text-muted">({workflow.steps.length})</span>
+            </h2>
+            <div className="flex flex-wrap gap-1">
+              {STEP_KINDS.map((k) => (
+                <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
+                  {stepIcon(k, 11)} {prettyKind(k)}
+                </Button>
+              ))}
             </div>
           </div>
 
-          {workflow.steps.length === 0 && (
-            <div
-              style={{
-                color: 'var(--text-dim)',
-                fontSize: 12,
-                padding: 12,
-                textAlign: 'center',
-              }}
-            >
-              add a step above
-            </div>
+          {workflow.steps.length === 0 ? (
+            <Empty
+              size="sm"
+              title="No steps yet"
+              description="Add a step above. Steps run top-to-bottom in the active session."
+            />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {workflow.steps.map((step, idx) => (
+                <li
+                  key={step.id}
+                  className="rounded-md border border-border bg-surface-0 overflow-hidden"
+                >
+                  <div className="flex items-center gap-2 px-3 py-2 bg-surface-1/60 border-b border-border">
+                    <Badge size="sm" variant="default" className="font-mono">
+                      #{idx + 1}
+                    </Badge>
+                    <span
+                      className="inline-flex items-center justify-center w-6 h-6 rounded bg-surface-2 text-text-muted shrink-0"
+                      aria-hidden
+                    >
+                      {stepIcon(step.kind)}
+                    </span>
+                    <Badge size="sm" variant="accent">
+                      {prettyKind(step.kind)}
+                    </Badge>
+                    <Input
+                      value={step.name}
+                      onChange={(e) => updateStep(step.id, { name: e.target.value })}
+                      sizeVariant="sm"
+                      className="flex-1"
+                    />
+                    <IconButton
+                      icon={<ChevronUp size={12} />}
+                      label="Move up"
+                      size="sm"
+                      variant="ghost"
+                      disabled={idx === 0}
+                      onClick={() => moveStep(step.id, -1)}
+                    />
+                    <IconButton
+                      icon={<ChevronDown size={12} />}
+                      label="Move down"
+                      size="sm"
+                      variant="ghost"
+                      disabled={idx === workflow.steps.length - 1}
+                      onClick={() => moveStep(step.id, 1)}
+                    />
+                    <IconButton
+                      icon={<X size={12} />}
+                      label="Remove step"
+                      size="sm"
+                      variant="danger"
+                      onClick={() => removeStep(step.id)}
+                    />
+                  </div>
+                  <div className="px-3 py-3">
+                    <StepForm
+                      step={step}
+                      templates={allTemplates}
+                      onPatch={(patch) => updateStep(step.id, patch)}
+                      suggestions={suggestions}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
-
-          {workflow.steps.map((step, idx) => (
-            <div key={step.id} className="step-card">
-              <div className="step-card-header">
-                <span
-                  className="mono"
-                  style={{ width: 22, color: 'var(--text-dim)', textAlign: 'right' }}
-                >
-                  #{idx + 1}
-                </span>
-                <span className="badge">{prettyKind(step.kind)}</span>
-                <input
-                  value={step.name}
-                  onChange={(e) => updateStep(step.id, { name: e.target.value })}
-                  style={{ flex: 1 }}
-                />
-                <button onClick={() => moveStep(step.id, -1)} disabled={idx === 0} title="Move up">
-                  ↑
-                </button>
-                <button
-                  onClick={() => moveStep(step.id, 1)}
-                  disabled={idx === workflow.steps.length - 1}
-                  title="Move down"
-                >
-                  ↓
-                </button>
-                <button className="danger" onClick={() => removeStep(step.id)} title="Remove step">
-                  ✕
-                </button>
-              </div>
-              <div className="step-card-body">
-                <StepForm
-                  step={step}
-                  templates={allTemplates}
-                  onPatch={(patch) => updateStep(step.id, patch)}
-                  suggestions={suggestions}
-                />
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
       {result && <RunResultView result={result} />}
-    </>
+    </div>
   );
 }
 
@@ -459,54 +561,56 @@ function StepForm({
 }): JSX.Element {
   if (step.kind === 'airdrop') {
     return (
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <AddressInput
-          value={step.pubkey}
-          onChange={(v) => onPatch({ pubkey: v } as Partial<Step>)}
-          suggestions={suggestions}
-          placeholder="recipient pubkey"
-          style={{ flex: '1 1 200px' }}
-        />
-        <input
-          value={step.lamports}
-          onChange={(e) => onPatch({ lamports: e.target.value } as Partial<Step>)}
-          placeholder="lamports"
-          className="mono"
-          style={{ width: 160 }}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-2">
+        <Field label="Recipient">
+          <AddressInput
+            value={step.pubkey}
+            onChange={(v) => onPatch({ pubkey: v } as Partial<Step>)}
+            suggestions={suggestions}
+            placeholder="recipient pubkey"
+          />
+        </Field>
+        <Field label="Lamports">
+          <Input
+            value={step.lamports}
+            onChange={(e) => onPatch({ lamports: e.target.value } as Partial<Step>)}
+            placeholder="lamports"
+            className="font-mono"
+          />
+        </Field>
       </div>
     );
   }
   if (step.kind === 'warpTime') {
     return (
-      <input
-        value={step.seconds}
-        onChange={(e) =>
-          onPatch({ seconds: Number(e.target.value) || 0 } as Partial<Step>)
-        }
-        placeholder="seconds"
-        style={{ width: 160 }}
-      />
+      <Field label="Seconds">
+        <Input
+          value={String(step.seconds)}
+          onChange={(e) =>
+            onPatch({ seconds: Number(e.target.value) || 0 } as Partial<Step>)
+          }
+          placeholder="seconds"
+          className="font-mono max-w-[200px]"
+        />
+      </Field>
     );
   }
   if (step.kind === 'warpSlot') {
     return (
-      <input
-        value={step.slot}
-        onChange={(e) => onPatch({ slot: e.target.value } as Partial<Step>)}
-        placeholder="absolute slot"
-        className="mono"
-        style={{ width: 200 }}
-      />
+      <Field label="Absolute slot">
+        <Input
+          value={step.slot}
+          onChange={(e) => onPatch({ slot: e.target.value } as Partial<Step>)}
+          placeholder="absolute slot"
+          className="font-mono max-w-[260px]"
+        />
+      </Field>
     );
   }
   if (step.kind === 'expireBlockhash' || step.kind === 'resetSession') {
-    return (
-      <div style={{ color: 'var(--text-dim)', fontSize: 11 }}>(no parameters)</div>
-    );
+    return <div className="text-2xs text-text-subtle italic">no parameters</div>;
   }
 
-  // tx step
   return <TxStepForm step={step} templates={templates} onPatch={onPatch} />;
 }
 
@@ -519,7 +623,9 @@ function TxStepForm({
   templates: Array<{ id: string; name: string; ixs: TxIxLite[] }>;
   onPatch: (patch: Partial<Step>) => void;
 }): JSX.Element {
-  const [keypairs, setKeypairs] = useState<Array<{ id: string; label: string; pubkey: string }>>([]);
+  const [keypairs, setKeypairs] = useState<Array<{ id: string; label: string; pubkey: string }>>(
+    [],
+  );
   useEffect(() => {
     void api
       .call<Array<{ id: string; label: string; pubkey: string }>>('keypair.list')
@@ -528,55 +634,60 @@ function TxStepForm({
   }, []);
 
   return (
-    <div>
-      <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 6 }}>
+    <div className="flex flex-col gap-3">
+      <div className="text-2xs text-text-muted">
         Pulls instructions from a saved template. Build templates from the Tx Builder tab.
       </div>
-      <div className="row" style={{ alignItems: 'center' }}>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, minWidth: 80 }}>Template</span>
-        <select
-          value={step.templateId ?? ''}
-          onChange={(e) => {
-            const id = e.target.value;
-            if (!id) {
-              onPatch({ templateId: null } as Partial<Step>);
-              return;
-            }
-            const tpl = templates.find((t) => t.id === id);
-            if (!tpl) return;
-            onPatch({ templateId: id, ixs: tpl.ixs } as Partial<Step>);
-          }}
-          style={{ flex: 1 }}
-        >
-          <option value="">— pick a template —</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} ({t.ixs.length} ix)
-            </option>
-          ))}
-        </select>
-        {step.templateId && (
-          <button
-            title="Re-sync ixs from the currently linked template (in case template was edited)"
-            onClick={() => {
-              const tpl = templates.find((t) => t.id === step.templateId);
-              if (!tpl) return;
-              onPatch({ ixs: tpl.ixs } as Partial<Step>);
-            }}
-          >
-            ⟲ Reload
-          </button>
-        )}
-      </div>
 
-      <div className="row" style={{ marginTop: 6, alignItems: 'center' }}>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, minWidth: 80 }}>Payer</span>
-        <select
+      <Field label="Template">
+        <div className="flex items-center gap-2">
+          <Select
+            value={step.templateId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id) {
+                onPatch({ templateId: null } as Partial<Step>);
+                return;
+              }
+              const tpl = templates.find((t) => t.id === id);
+              if (!tpl) return;
+              onPatch({ templateId: id, ixs: tpl.ixs } as Partial<Step>);
+            }}
+            className="flex-1"
+          >
+            <option value="">— pick a template —</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.ixs.length} ix)
+              </option>
+            ))}
+          </Select>
+          {step.templateId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const tpl = templates.find((t) => t.id === step.templateId);
+                if (!tpl) return;
+                onPatch({ ixs: tpl.ixs } as Partial<Step>);
+              }}
+              title="Re-sync ixs from the linked template (in case template was edited)"
+            >
+              <RefreshCcw size={12} aria-hidden /> Reload
+            </Button>
+          )}
+        </div>
+      </Field>
+
+      <Field
+        label="Payer"
+        help="Sandbox-only signing. Ephemeral payer recommended unless ix requires a specific signer."
+      >
+        <Select
           value={step.payerKeypairId ?? ''}
           onChange={(e) =>
             onPatch({ payerKeypairId: e.target.value || null } as Partial<Step>)
           }
-          style={{ flex: 1 }}
         >
           <option value="">— ephemeral (auto-generate + airdrop) —</option>
           {keypairs.map((k) => (
@@ -584,74 +695,97 @@ function TxStepForm({
               {k.label} · {k.pubkey.slice(0, 8)}…
             </option>
           ))}
-        </select>
+        </Select>
+      </Field>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="CU limit">
+          <Input
+            value={step.computeUnitLimit ?? ''}
+            onChange={(e) =>
+              onPatch({
+                computeUnitLimit: e.target.value ? Number(e.target.value) : null,
+              } as Partial<Step>)
+            }
+            placeholder="(default)"
+          />
+        </Field>
+        <Field label="Payer airdrop (lamports)">
+          <Input
+            value={step.airdropPayerLamports ?? ''}
+            onChange={(e) =>
+              onPatch({
+                airdropPayerLamports: e.target.value || null,
+              } as Partial<Step>)
+            }
+            placeholder="(skip)"
+            className="font-mono"
+          />
+        </Field>
       </div>
 
-      <div className="row" style={{ marginTop: 6, alignItems: 'center' }}>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, minWidth: 80 }}>CU limit</span>
-        <input
-          value={step.computeUnitLimit ?? ''}
-          onChange={(e) =>
-            onPatch({
-              computeUnitLimit: e.target.value ? Number(e.target.value) : null,
-            } as Partial<Step>)
-          }
-          placeholder="(default)"
-          style={{ width: 160 }}
-        />
-      </div>
-
-      <div className="row" style={{ marginTop: 6, alignItems: 'center' }}>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, minWidth: 80 }}>
-          Payer airdrop (lamports)
-        </span>
-        <input
-          value={step.airdropPayerLamports ?? ''}
-          onChange={(e) =>
-            onPatch({
-              airdropPayerLamports: e.target.value || null,
-            } as Partial<Step>)
-          }
-          placeholder="(skip)"
-          className="mono"
-          style={{ width: 180 }}
-        />
-      </div>
-
-      <div style={{ marginTop: 6, fontSize: 11 }}>
-        Current ixs: <strong>{step.ixs.length}</strong>
-      </div>
-      {step.ixs.map((ix, i) => (
-        <div
-          key={i}
-          style={{
-            marginTop: 4,
-            color: 'var(--text-dim)',
-            fontSize: 11,
-          }}
-        >
-          {i + 1}. {ix.instructionName} <span className="mono">on {ix.programLabel}</span> · {ix.summary}
+      <div className="rounded border border-border bg-bg p-2.5 mt-1">
+        <div className="text-2xs text-text-subtle mb-1.5">
+          Linked instructions{' '}
+          <Badge size="sm" variant="default">
+            {step.ixs.length}
+          </Badge>
         </div>
-      ))}
+        {step.ixs.length === 0 ? (
+          <div className="text-2xs text-text-subtle italic">no ixs — pick a template above</div>
+        ) : (
+          <ol className="flex flex-col gap-0.5">
+            {step.ixs.map((ix, i) => (
+              <li key={i} className="text-2xs text-text-muted">
+                <span className="font-mono text-text-subtle mr-1.5">{i + 1}.</span>
+                <span className="text-accent">{ix.instructionName}</span>{' '}
+                <span className="text-text-subtle">on</span> <span className="font-mono">{ix.programLabel}</span>{' '}
+                <span className="text-text-subtle">·</span> {ix.summary}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
 
 function RunResultView({ result }: { result: RunResult }): JSX.Element {
+  const succeeded = result.steps.filter((s) => s.success).length;
   return (
     <div className="panel">
-      <h2>
-        Run result ·{' '}
-        <span style={{ color: result.success ? 'var(--success)' : 'var(--danger)' }}>
-          {result.success ? 'SUCCESS' : 'FAILED'}
+      <header className="flex items-start gap-3 mb-3 flex-wrap">
+        <span
+          className={[
+            'inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0',
+            result.success ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger',
+          ].join(' ')}
+          aria-hidden
+        >
+          {result.success ? (
+            <Check size={16} strokeWidth={2.5} />
+          ) : (
+            <XCircle size={16} strokeWidth={2.5} />
+          )}
         </span>
-      </h2>
-      <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 10 }}>
-        {result.steps.length} steps · {result.completedAt - result.startedAt} ms total
-      </div>
-      {result.steps.map((s, i) => (
-        <StepResultRow key={s.stepId} index={i + 1} step={s} />
-      ))}
+        <div className="min-w-0">
+          <h2 className="m-0 text-md font-semibold">
+            Run result ·{' '}
+            <span className={result.success ? 'text-success' : 'text-danger'}>
+              {result.success ? 'SUCCESS' : 'FAILED'}
+            </span>
+          </h2>
+          <div className="text-xs text-text-muted mt-0.5">
+            {succeeded}/{result.steps.length} steps ok ·{' '}
+            <span className="font-mono">{result.completedAt - result.startedAt} ms</span> total
+          </div>
+        </div>
+      </header>
+      <ul className="rounded-md border border-border overflow-hidden">
+        {result.steps.map((s, i) => (
+          <StepResultRow key={s.stepId} index={i + 1} step={s} />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -661,81 +795,67 @@ function StepResultRow({ index, step }: { index: number; step: StepResult }): JS
   const hasLogs = !!(step.tx && step.tx.logs.length > 0);
   const expandable = hasLogs || !!step.errorMessage;
   return (
-    <div
-      style={{
-        borderBottom: '1px solid var(--border)',
-        padding: '8px 0',
-        fontSize: 12,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          cursor: expandable ? 'pointer' : 'default',
-        }}
+    <li className="border-b border-border last:border-b-0">
+      <button
+        type="button"
+        disabled={!expandable}
         onClick={() => expandable && setOpen((v) => !v)}
+        className={[
+          'w-full flex items-center gap-2 px-3 py-2 text-left bg-transparent border-0',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+          expandable ? 'cursor-pointer hover:bg-surface-1/40' : 'cursor-default',
+        ].join(' ')}
       >
-        <span style={{ width: 14, color: 'var(--text-dim)' }}>
-          {expandable ? (open ? '▾' : '▸') : '·'}
+        <span className="w-3.5 text-text-muted inline-flex justify-center">
+          {expandable ? (
+            open ? (
+              <ChevronDown size={12} />
+            ) : (
+              <ChevronRight size={12} />
+            )
+          ) : (
+            <span className="w-1 h-1 rounded-full bg-text-subtle" />
+          )}
         </span>
-        <span className="mono" style={{ width: 22, color: 'var(--text-dim)' }}>
+        <Badge size="sm" variant="default" className="font-mono">
           #{index}
-        </span>
-        <span className="badge">{prettyKind(step.kind)}</span>
-        <span style={{ flex: 1 }}>{step.name}</span>
+        </Badge>
         <span
-          style={{
-            color: step.success ? 'var(--success)' : 'var(--danger)',
-            minWidth: 16,
-          }}
+          className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted shrink-0"
+          aria-hidden
         >
-          {step.success ? '✓' : '✕'}
+          {stepIcon(step.kind, 11)}
         </span>
+        <Badge size="sm" variant="accent">
+          {prettyKind(step.kind)}
+        </Badge>
+        <span className="flex-1 min-w-0 truncate text-xs text-text">{step.name}</span>
         <span
-          className="mono"
-          style={{ fontSize: 11, color: 'var(--text-dim)', minWidth: 70, textAlign: 'right' }}
+          className={['shrink-0', step.success ? 'text-success' : 'text-danger'].join(' ')}
+          aria-label={step.success ? 'success' : 'failure'}
         >
+          {step.success ? <Check size={13} /> : <XCircle size={13} />}
+        </span>
+        <span className="font-mono text-2xs text-text-subtle min-w-[80px] text-right">
           {step.tx ? `cu ${step.tx.cuConsumed} · ` : ''}
-          {step.durationMs.toFixed(1)} ms
+          {step.durationMs.toFixed(1)}ms
         </span>
-      </div>
+      </button>
 
-      {open && (
-        <div style={{ marginLeft: 32, marginTop: 6 }}>
+      {open && expandable && (
+        <div className="px-3 pb-3 pl-10">
           {step.errorMessage && (
-            <div
-              style={{
-                color: 'var(--danger)',
-                fontSize: 11,
-                marginBottom: 6,
-                wordBreak: 'break-all',
-              }}
-            >
-              error: <span className="mono">{step.errorMessage}</span>
+            <div className="text-2xs text-danger break-words mb-2 font-mono">
+              error: {step.errorMessage}
             </div>
           )}
           {hasLogs && (
-            <pre
-              className="mono"
-              style={{
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-                padding: 8,
-                fontSize: 11,
-                maxHeight: 320,
-                overflow: 'auto',
-                margin: 0,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
+            <pre className="font-mono text-2xs bg-bg border border-border rounded p-2 max-h-[320px] overflow-auto m-0 whitespace-pre-wrap">
               {step.tx!.logs.join('\n')}
             </pre>
           )}
         </div>
       )}
-    </div>
+    </li>
   );
 }

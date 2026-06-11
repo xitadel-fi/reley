@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { Button, ErrorState, Field, Input, Pubkey, Spinner } from '../ui';
 
 export function AddAccountForm({
   projectId,
@@ -32,28 +33,46 @@ export function AddAccountForm({
   };
 
   return (
-    <>
-      <h3>
-        Add account under {programId.slice(0, 4)}…{programId.slice(-4)}
-      </h3>
-      {err && <div className="error-banner">{err}</div>}
-      <label>Address</label>
-      <input
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-        placeholder="base58 PDA address"
-        className="mono"
-      />
-      <label>Label (optional)</label>
-      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="DLMM pool A" />
-      <label>Slot (optional)</label>
-      <input value={slot} onChange={(e) => setSlot(e.target.value)} />
-      <div className="actions">
-        <button onClick={() => onDone()}>Cancel</button>
-        <button className="primary" disabled={!address || busy} onClick={submit}>
-          {busy ? 'Cloning…' : 'Add'}
-        </button>
+    <div className="flex flex-col gap-4 min-w-[420px]">
+      <div>
+        <h3 className="m-0 text-md font-semibold">Add account</h3>
+        <div className="mt-1 text-xs text-text-muted inline-flex items-center gap-1">
+          under <Pubkey value={programId} noCopy className="text-text" />
+        </div>
       </div>
-    </>
+
+      {err && <ErrorState title="Failed to add account" message={err} />}
+
+      <Field label="Address" required>
+        <Input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="base58 PDA address"
+          className="font-mono"
+          autoFocus
+        />
+      </Field>
+      <Field label="Label" help="Optional friendly name shown in sidebar.">
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="DLMM pool A" />
+      </Field>
+      <Field label="Slot" help="Optional — pin clone to a specific slot.">
+        <Input value={slot} onChange={(e) => setSlot(e.target.value)} className="font-mono" />
+      </Field>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button variant="ghost" onClick={() => onDone()}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!address || busy} onClick={submit}>
+          {busy ? (
+            <>
+              <Spinner size={12} /> Cloning…
+            </>
+          ) : (
+            'Add account'
+          )}
+        </Button>
+      </div>
+    </div>
   );
 }

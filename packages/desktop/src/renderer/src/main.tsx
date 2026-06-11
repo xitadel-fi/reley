@@ -5,6 +5,7 @@ import { App } from './App';
 import { WelcomeScreen } from './features/WelcomeScreen';
 import { DialogsProvider } from './components/Dialogs';
 import { ToastProvider } from './components/Toast';
+import { ThemeProvider, TooltipProvider } from './ui';
 import './styles.css';
 
 const el = document.getElementById('root');
@@ -15,10 +16,12 @@ const isWelcome = api.context.isWelcome || params.get('welcome') === '1';
 
 createRoot(el).render(
   <React.StrictMode>
-    <ToastProvider>
-      <DialogsProvider>
-        {isWelcome ? <WelcomeScreen /> : <App />}
-      </DialogsProvider>
-    </ToastProvider>
+    <ThemeProvider>
+      <TooltipProvider delayDuration={300} skipDelayDuration={150}>
+        <ToastProvider>
+          <DialogsProvider>{isWelcome ? <WelcomeScreen /> : <App />}</DialogsProvider>
+        </ToastProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   </React.StrictMode>,
 );

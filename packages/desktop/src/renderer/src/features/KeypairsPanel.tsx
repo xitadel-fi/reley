@@ -1,7 +1,18 @@
+import { Coins, Code, Copy, Key, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
 import { useToast } from '../components/Toast';
+import {
+  Button,
+  Empty,
+  ErrorState,
+  Field,
+  IconButton,
+  Input,
+  Pubkey,
+  Spinner,
+} from '../ui';
 
 interface KeypairMeta {
   id: string;
@@ -25,11 +36,11 @@ export function KeypairsPanel({
   const dialogs = useDialogs();
   const toast = useToast();
 
-  const copySecret = async (id: string, label: string): Promise<void> => {
+  const copySecret = async (id: string, lbl: string): Promise<void> => {
     const ok = await dialogs.confirm({
       title: 'Reveal secret key',
       message:
-        `The base58 secret for "${label}" will be copied to your clipboard. ` +
+        `The base58 secret for "${lbl}" will be copied to your clipboard. ` +
         `Anyone with this string can sign as this keypair. Don't paste into untrusted places.`,
       danger: true,
       confirmText: 'Reveal & copy',
@@ -41,17 +52,17 @@ export function KeypairsPanel({
         format: 'base58',
       });
       await navigator.clipboard.writeText(r.secret);
-      toast.success(`secret copied (base58) — ${label}`);
+      toast.success(`secret copied (base58) — ${lbl}`);
     } catch (e) {
       toast.error(String(e));
     }
   };
 
-  const copySecretJson = async (id: string, label: string): Promise<void> => {
+  const copySecretJson = async (id: string, lbl: string): Promise<void> => {
     const ok = await dialogs.confirm({
       title: 'Export secret as JSON array',
       message:
-        `The 64-byte secret array for "${label}" will be copied to your clipboard ` +
+        `The 64-byte secret array for "${lbl}" will be copied to your clipboard ` +
         `(Solana-CLI / id.json format).`,
       danger: true,
       confirmText: 'Reveal & copy',
@@ -63,7 +74,7 @@ export function KeypairsPanel({
         format: 'json',
       });
       await navigator.clipboard.writeText(r.secret);
-      toast.success(`secret copied (JSON) — ${label}`);
+      toast.success(`secret copied (JSON) — ${lbl}`);
     } catch (e) {
       toast.error(String(e));
     }
@@ -152,132 +163,150 @@ export function KeypairsPanel({
     }
   };
 
-  const remove = async (id: string): Promise<void> => {
+  const remove = async (id: string, lbl: string): Promise<void> => {
+    const ok = await dialogs.confirm({
+      title: 'Delete keypair',
+      message: `Permanently remove "${lbl}"? Secret cannot be recovered.`,
+      danger: true,
+      confirmText: 'Delete',
+    });
+    if (!ok) return;
     await api.call('keypair.delete', { id });
     await reload();
   };
 
   return (
-    <div className="panel">
-      <h2>Sandbox keypairs</h2>
-      <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 10 }}>
-        Local-only. Used to sign sandbox transactions. Do NOT use for mainnet funds.
-        {items.some((i) => !i.sealed) && (
-          <span style={{ color: 'var(--danger)', display: 'block', marginTop: 4 }}>
-            ⚠ {items.filter((i) => !i.sealed).length} keypair(s) stored unsealed (created before
-            safeStorage was wired, or platform doesn't support it).{' '}
-            <button
-              style={{ padding: '1px 6px', fontSize: 10, marginLeft: 4 }}
-              onClick={async () => {
-                setErr(null);
-                try {
-                  const r = await api.call<{ updated: number }>('keypair.reseal');
-                  if (r.updated === 0) {
-                    setErr('nothing to re-seal');
-                  }
-                  await reload();
-                } catch (e) {
-                  setErr(String(e));
-                }
-              }}
+    <div className="flex flex-col gap-4">
+      <div className="panel">
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="m-0">Sandbox keypairs</h2>
+          <span className="text-2xs text-text-subtle">{items.length} keypairs</span>
+        </div>
+        <div className="text-xs text-text-muted mb-3">
+          Local-only. Used to sign sandbox transactions.{' '}
+          <span className="text-warning">Do not use for mainnet funds.</span>
+        </div>
+
+        {err && <ErrorState title="Keypair error" message={err} />}
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+          <Field label="Label">
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="payer / admin / user-A"
+            />
+          </Field>
+          <div className="self-end">
+            <Button variant="primary" size="md" disabled={!label.trim() || busy} onClick={generate}>
+              {busy ? <Spinner size={12} /> : <Key size={12} aria-hidden />} Generate
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mt-3">
+          <Field label="Import secret" help="base58 OR Solana-CLI JSON ([64 bytes]).">
+            <Input
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="base58 OR JSON array"
+              className="font-mono"
+            />
+          </Field>
+          <div className="self-end">
+            <Button
+              variant="outline"
+              size="md"
+              disabled={!label.trim() || !secret.trim() || busy}
+              onClick={importKp}
             >
-              Re-seal now
-            </button>
-          </span>
+              <Upload size={12} aria-hidden /> Import
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        {items.length === 0 ? (
+          <Empty
+            size="sm"
+            icon={<Key size={18} aria-hidden />}
+            title="No keypairs yet"
+            description="Generate or import one above."
+          />
+        ) : (
+          <div className="rounded-md border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
+                <tr>
+                  <th className="text-left font-medium px-3 py-1.5">Label</th>
+                  <th className="text-left font-medium px-3 py-1.5">Pubkey</th>
+                  <th className="text-left font-medium px-3 py-1.5">Created</th>
+                  <th className="px-3 py-1.5 w-72" />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((k) => (
+                  <tr key={k.id} className="border-t border-border hover:bg-surface-1/40">
+                    <td className="px-3 py-1.5 text-text">{k.label}</td>
+                    <td className="px-3 py-1.5">
+                      <Pubkey value={k.pubkey} className="text-text-muted" />
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
+                      {new Date(k.createdAt).toISOString().slice(0, 19)}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex gap-1 justify-end">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          disabled={!activeSessionId || airdropping === k.pubkey}
+                          onClick={() => void airdrop(k.pubkey)}
+                          title={
+                            activeSessionId
+                              ? 'Fund this pubkey with SOL in active session'
+                              : 'Select a session first'
+                          }
+                        >
+                          {airdropping === k.pubkey ? (
+                            <Spinner size={10} />
+                          ) : (
+                            <Coins size={11} aria-hidden />
+                          )}
+                          Airdrop
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => void copySecret(k.id, k.label)}
+                          title="Copy base58 secret key"
+                        >
+                          <Copy size={11} aria-hidden /> secret
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => void copySecretJson(k.id, k.label)}
+                          title="Copy Solana-CLI JSON (64-byte array)"
+                        >
+                          <Code size={11} aria-hidden /> json
+                        </Button>
+                        <IconButton
+                          icon={<Trash2 size={11} />}
+                          label="Delete"
+                          size="sm"
+                          variant="danger"
+                          onClick={() => void remove(k.id, k.label)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
-      {err && <div className="error-banner">{err}</div>}
-
-      <div className="row">
-        <input
-          placeholder="Label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          style={{ flex: '1 1 200px' }}
-        />
-        <button className="primary" disabled={!label.trim() || busy} onClick={generate}>
-          Generate
-        </button>
-      </div>
-      <div className="row" style={{ marginTop: 8 }}>
-        <input
-          placeholder="Secret (base58 OR JSON [...64 bytes...])"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          className="mono"
-        />
-        <button disabled={!label.trim() || !secret.trim() || busy} onClick={importKp}>
-          Import
-        </button>
-      </div>
-
-      <table className="acc-table" style={{ marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th>Label</th>
-            <th>Pubkey</th>
-            <th>Sealed</th>
-            <th>Created</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((k) => (
-            <tr key={k.id}>
-              <td>{k.label}</td>
-              <td className="mono">
-                {k.pubkey.slice(0, 8)}…{k.pubkey.slice(-4)}{' '}
-                <button
-                  style={{ padding: '2px 6px', fontSize: 11, marginLeft: 4 }}
-                  onClick={() => void navigator.clipboard.writeText(k.pubkey)}
-                >
-                  copy
-                </button>
-              </td>
-              <td>{k.sealed ? '✓' : '—'}</td>
-              <td className="mono" style={{ fontSize: 11 }}>
-                {new Date(k.createdAt).toISOString().slice(0, 19)}
-              </td>
-              <td>
-                <button
-                  disabled={!activeSessionId || airdropping === k.pubkey}
-                  onClick={() => void airdrop(k.pubkey)}
-                  title={
-                    activeSessionId
-                      ? 'Fund this pubkey with SOL in active session'
-                      : 'Select a session first'
-                  }
-                >
-                  {airdropping === k.pubkey ? '…' : 'Airdrop'}
-                </button>{' '}
-                <button
-                  onClick={() => void copySecret(k.id, k.label)}
-                  title="Copy base58 secret key"
-                >
-                  Copy secret
-                </button>{' '}
-                <button
-                  onClick={() => void copySecretJson(k.id, k.label)}
-                  title="Copy Solana-CLI JSON (64-byte array)"
-                  style={{ padding: '2px 6px', fontSize: 11 }}
-                >
-                  JSON
-                </button>{' '}
-                <button className="danger" onClick={() => void remove(k.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={5} style={{ color: 'var(--text-dim)' }}>
-                no keypairs yet
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
     </div>
   );
 }

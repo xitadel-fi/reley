@@ -2,9 +2,19 @@ import { join } from 'node:path';
 import { KeypairStore, type SealAdapter } from '../keypair/keypair-store.js';
 import { IdlStore } from '../patcher/idl-store.js';
 import { BlobStore } from './blob-store.js';
-import { ProjectManifestSink, SessionFolderSink } from './persistence.js';
+import {
+  PatchFolderSink,
+  ProgramFolderSink,
+  ProjectManifestSink,
+  ScriptFolderSink,
+  SessionFolderSink,
+  TxTemplateFolderSink,
+  WorkflowFolderSink,
+  type ManifestV2,
+} from './persistence.js';
 import { ProjectStore } from './project-store.js';
 import { SessionStore } from './session-store.js';
+import type { Project } from './types.js';
 
 export interface CoreContextOptions {
   /**
@@ -24,6 +34,11 @@ export class CoreContext {
   readonly projectRoot: string;
   private readonly manifestSink: ProjectManifestSink;
   private readonly sessionSink: SessionFolderSink;
+  private readonly templateSink: TxTemplateFolderSink;
+  private readonly workflowSink: WorkflowFolderSink;
+  private readonly scriptSink: ScriptFolderSink;
+  private readonly patchSink: PatchFolderSink;
+  private readonly programSink: ProgramFolderSink;
 
   constructor(opts: CoreContextOptions) {
     this.projectRoot = opts.projectRoot;
@@ -35,19 +50,71 @@ export class CoreContext {
     this.sessions = new SessionStore();
     this.manifestSink = new ProjectManifestSink(opts.projectRoot);
     this.sessionSink = new SessionFolderSink(join(relayDir, 'sessions'));
+    this.templateSink = new TxTemplateFolderSink(join(relayDir, 'tx-templates'));
+    this.workflowSink = new WorkflowFolderSink(join(relayDir, 'workflows'));
+    this.scriptSink = new ScriptFolderSink(join(relayDir, 'scripts'));
+    this.patchSink = new PatchFolderSink(join(relayDir, 'patches'));
+    this.programSink = new ProgramFolderSink(join(relayDir, 'programs'));
   }
 
   async load(): Promise<void> {
-    const project = await this.manifestSink.load();
-    if (project) this.projects.loadAll([project]);
+    const meta = await this.manifestSink.load();
+    if (meta) {
+      const [templates, workflows, scripts, patches, programs] = await Promise.all([
+        this.templateSink.loadAll(),
+        this.workflowSink.loadAll(),
+        this.scriptSink.loadAll(),
+        this.patchSink.loadAll(),
+        this.programSink.loadAll(),
+      ]);
+      const project: Project = {
+        id: meta.id,
+        name: meta.name,
+        description: meta.description,
+        network: meta.network,
+        rpcEndpointId: meta.rpcEndpointId,
+        programs: Object.fromEntries(programs.map((p) => [p.programId, p])),
+        patches,
+        sessionIds: meta.sessionIds,
+        keypairRefs: meta.keypairRefs,
+        scripts,
+        txTemplates: templates,
+        workflows,
+        createdAt: meta.createdAt,
+        lastOpenedAt: meta.lastOpenedAt,
+        pinned: meta.pinned,
+      };
+      this.projects.loadAll([project]);
+    }
     const sessions = await this.sessionSink.loadAll();
     this.sessions.loadAll(sessions);
   }
 
   async save(): Promise<void> {
-    const projects = this.projects.exportAll();
-    const first = projects[0];
-    if (first) await this.manifestSink.save(first);
+    const first = this.projects.exportAll()[0];
+    if (first) {
+      const meta: ManifestV2 = {
+        formatVersion: 0, // sink stamps current version on write
+        id: first.id,
+        name: first.name,
+        description: first.description,
+        network: first.network,
+        rpcEndpointId: first.rpcEndpointId,
+        sessionIds: first.sessionIds,
+        keypairRefs: first.keypairRefs,
+        createdAt: first.createdAt,
+        lastOpenedAt: first.lastOpenedAt,
+        pinned: first.pinned,
+      };
+      await Promise.all([
+        this.manifestSink.save(meta),
+        this.templateSink.saveAll(first.txTemplates),
+        this.workflowSink.saveAll(first.workflows),
+        this.scriptSink.saveAll(first.scripts),
+        this.patchSink.saveAll(first.patches),
+        this.programSink.saveAll(Object.values(first.programs)),
+      ]);
+    }
     await this.sessionSink.saveAll(this.sessions.exportAll());
   }
 

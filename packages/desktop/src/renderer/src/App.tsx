@@ -1,10 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity,
+  Camera,
+  ChevronDown,
+  ChevronRight,
+  Command,
+  EyeOff,
+  FolderOpen,
+  History,
+  Info,
+  KeyRound,
+  LayoutGrid,
+  LayoutList,
+  ListTree,
+  Minus,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Search,
+  Square,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { ContextMenu, type MenuItem, useContextMenu } from './components/ContextMenu';
 import { Modal } from './components/Modal';
 import { ConfirmModal, PromptModal, type PromptOptions } from './components/PromptModal';
 import { useToast } from './components/Toast';
+import { Badge, Button, IconButton, Input, Kbd, Pubkey, useTheme } from './ui';
 import { AccountInspector } from './features/AccountInspector';
 import { AddAccountForm } from './features/AddAccountForm';
 import { AddProgramForm } from './features/AddProgramForm';
@@ -16,6 +44,8 @@ import { PatchAccountForm } from './features/PatchAccountForm';
 import { ReplayPanel } from './features/ReplayPanel';
 import { SnapshotsPanel } from './features/SnapshotsPanel';
 import { TxBuilderPanel } from './features/TxBuilderPanel';
+import { FileEditor } from './features/FileEditor';
+import { FilesTree } from './features/FilesTree';
 import { TxHistoryPanel } from './features/TxHistoryPanel';
 import { WorkflowsPanel } from './features/WorkflowsPanel';
 import type { Project, ProgramEntry, ProjectMeta, SessionMeta } from './types';
@@ -39,6 +69,7 @@ function useSidebarWidth(): [number, (n: number) => void] {
 
 type NavView = 'workspace' | 'replay' | 'snapshots' | 'keypairs';
 type WorkspaceTab = 'builder' | 'workflows' | 'history' | 'patches';
+type SidebarMode = 'project' | 'files';
 
 interface PromptState {
   options: PromptOptions;
@@ -79,7 +110,45 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedPrograms, setExpandedPrograms] = useState<Set<string>>(new Set());
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
+    if (typeof localStorage === 'undefined') return 'project';
+    return (localStorage.getItem('relay:sidebar-mode') as SidebarMode) || 'project';
+  });
+  const switchSidebarMode = useCallback((m: SidebarMode) => {
+    setSidebarMode(m);
+    if (typeof localStorage !== 'undefined') localStorage.setItem('relay:sidebar-mode', m);
+  }, []);
+  const [openedFiles, setOpenedFiles] = useState<string[]>([]);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [filesRefreshKey, setFilesRefreshKey] = useState(0);
+  const openFileTab = useCallback((path: string) => {
+    setOpenedFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveFile(path);
+  }, []);
+  const closeFileTab = useCallback((path: string) => {
+    setOpenedFiles((prev) => {
+      const idx = prev.indexOf(path);
+      if (idx < 0) return prev;
+      const next = prev.filter((p) => p !== path);
+      setActiveFile((cur) => {
+        if (cur !== path) return cur;
+        return next[idx] ?? next[idx - 1] ?? null;
+      });
+      return next;
+    });
+  }, []);
+
+  const [programsView, setProgramsView] = useState<'tree' | 'list'>(() => {
+    if (typeof localStorage === 'undefined') return 'tree';
+    return (localStorage.getItem('relay:programs-view') as 'tree' | 'list') || 'tree';
+  });
+  const toggleProgramsView = useCallback(() => {
+    setProgramsView((v) => {
+      const next = v === 'tree' ? 'list' : 'tree';
+      if (typeof localStorage !== 'undefined') localStorage.setItem('relay:programs-view', next);
+      return next;
+    });
+  }, []);
   const [idlAttached, setIdlAttached] = useState<Set<string>>(new Set());
   const [hiddenPrograms, setHiddenPrograms] = useState<Set<string>>(new Set());
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -700,36 +769,51 @@ export function App(): JSX.Element {
         className={`app-header${api.platform === 'darwin' ? ' is-mac' : api.platform === 'win32' ? ' is-win' : ' is-linux'}`}
       >
         <div className="app-header-left">
-          <div className="title">RELAY</div>
+          <div className="title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <img
+              src="./icon.svg"
+              alt=""
+              aria-hidden
+              width={18}
+              height={18}
+              draggable={false}
+              style={{ borderRadius: 4 }}
+            />
+            RELAY
+          </div>
         </div>
         <div className="app-header-center">
           <button
             className="palette-trigger"
             onClick={() => setPaletteOpen(true)}
-            title="⌘K"
+            title="Search & commands (⌘K)"
+            aria-label="Open command palette"
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span>⌕</span> Search & commands
+              <Search size={12} aria-hidden /> Search & commands
             </span>
-            <span className="kbd">⌘K</span>
+            <Kbd>⌘K</Kbd>
           </button>
         </div>
         <div className="app-header-right">
+          <ThemeToggle />
           <button
             className={`header-side-toggle${!leftCollapsed ? ' active' : ''}`}
             onClick={toggleLeft}
             title={`${leftCollapsed ? 'Show' : 'Hide'} left sidebar (⌘B)`}
             aria-label="Toggle left sidebar"
+            aria-pressed={!leftCollapsed}
           >
-            ◧
+            {leftCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
           </button>
           <button
             className={`header-side-toggle${!rightCollapsed ? ' active' : ''}`}
             onClick={toggleRight}
             title={`${rightCollapsed ? 'Show' : 'Hide'} right sidebar (⌘⌥B)`}
             aria-label="Toggle right sidebar"
+            aria-pressed={!rightCollapsed}
           >
-            ◨
+            {rightCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
           </button>
         </div>
         {api.platform !== 'darwin' && api.platform !== 'win32' && (
@@ -738,22 +822,25 @@ export function App(): JSX.Element {
               className="window-control"
               onClick={() => api.windowCtl.minimize()}
               title="Minimize"
+              aria-label="Minimize"
             >
-              ─
+              <Minus size={12} />
             </button>
             <button
               className="window-control"
               onClick={() => api.windowCtl.maximize()}
               title="Maximize / restore"
+              aria-label="Maximize"
             >
-              ☐
+              <Square size={10} />
             </button>
             <button
               className="window-control close"
               onClick={() => api.windowCtl.close()}
               title="Close"
+              aria-label="Close window"
             >
-              ✕
+              <X size={12} />
             </button>
           </div>
         )}
@@ -762,11 +849,11 @@ export function App(): JSX.Element {
       <nav className="nav-rail">
         {(
           [
-            { id: 'workspace', icon: '◳', label: 'Workspace' },
-            { id: 'replay', icon: '↻', label: 'Replay' },
-            { id: 'snapshots', icon: '◇', label: 'Snapshots' },
-            { id: 'keypairs', icon: '⌬', label: 'Keypairs' },
-          ] as Array<{ id: NavView; icon: string; label: string }>
+            { id: 'workspace', icon: <LayoutGrid size={18} aria-hidden />, label: 'Workspace' },
+            { id: 'replay', icon: <History size={18} aria-hidden />, label: 'Replay' },
+            { id: 'snapshots', icon: <Camera size={18} aria-hidden />, label: 'Snapshots' },
+            { id: 'keypairs', icon: <KeyRound size={18} aria-hidden />, label: 'Keypairs' },
+          ] as Array<{ id: NavView; icon: ReactNode; label: string }>
         ).map((v) => (
           <NavRailButton
             key={v.id}
@@ -788,75 +875,101 @@ export function App(): JSX.Element {
       </nav>
 
       <aside className="tree-pane">
-        {/* Project switcher */}
-        <div className="project-switcher">
-          <div
-            className="project-switcher-trigger"
-            onClick={() => setProjectSwitcherOpen((o) => !o)}
-          >
-            <div>
-              <div className="ps-name">{activeProjectMeta?.name ?? 'No project'}</div>
-              <div className="ps-meta">
-                {activeProjectMeta
-                  ? `${activeProjectMeta.network} · ${activeProjectMeta.programCount}p · ${activeProjectMeta.sessionCount}s`
-                  : 'create one to start'}
-              </div>
+        {/* Project header (simple — no dropdown) */}
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
+          <FolderOpen size={13} className="text-text-muted shrink-0" aria-hidden />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-text truncate">
+              {activeProjectMeta?.name ?? 'No project'}
             </div>
-            <div style={{ color: 'var(--text-dim)' }}>▾</div>
+            <div className="text-2xs text-text-subtle truncate font-mono">
+              {activeProjectMeta
+                ? `${activeProjectMeta.network} · ${activeProjectMeta.programCount}p · ${activeProjectMeta.sessionCount}s`
+                : 'open one to start'}
+            </div>
           </div>
-
-          {projectSwitcherOpen && (
-            <div
-              className="project-switcher-menu"
-              onMouseLeave={() => setProjectSwitcherOpen(false)}
-            >
-              {projects.map((p) => (
-                <div
-                  key={p.id}
-                  className={`project-switcher-item${p.id === activeProjectId ? ' selected' : ''}`}
-                  onClick={() => {
-                    setActiveProjectId(p.id);
-                    setProjectSwitcherOpen(false);
-                  }}
-                  onContextMenu={(e) => {
-                    setProjectSwitcherOpen(false);
-                    ctx.open(e, projectMenu(p));
-                  }}
-                >
-                  <div className="ps-item-name">{p.name}</div>
-                  <div className="ps-item-net">{p.network}</div>
-                </div>
-              ))}
-              {projects.length > 0 && <div className="project-switcher-divider" />}
-              <div
-                className="project-switcher-item"
-                style={{ color: 'var(--accent)' }}
-                onClick={() => {
-                  setProjectSwitcherOpen(false);
-                  void api.call('app.showWelcome');
-                }}
-              >
-                + New project
-              </div>
-            </div>
-          )}
+          <IconButton
+            icon={<Plus size={13} />}
+            label="Open / new project (welcome window)"
+            size="sm"
+            variant="ghost"
+            onClick={() => void api.call('app.showWelcome')}
+          />
         </div>
 
+        {/* Sidebar mode tabs (Android-Studio-style) */}
         {activeProject && (
+          <div className="flex border-b border-border bg-surface-0/50">
+            <button
+              type="button"
+              onClick={() => switchSidebarMode('project')}
+              className={[
+                'flex-1 text-2xs uppercase tracking-wider font-medium py-1.5',
+                'bg-transparent border-0',
+                sidebarMode === 'project'
+                  ? 'text-text border-b-2 border-accent'
+                  : 'text-text-subtle hover:text-text border-b-2 border-transparent',
+              ].join(' ')}
+            >
+              Project
+            </button>
+            <button
+              type="button"
+              onClick={() => switchSidebarMode('files')}
+              className={[
+                'flex-1 text-2xs uppercase tracking-wider font-medium py-1.5',
+                'bg-transparent border-0',
+                sidebarMode === 'files'
+                  ? 'text-text border-b-2 border-accent'
+                  : 'text-text-subtle hover:text-text border-b-2 border-transparent',
+              ].join(' ')}
+            >
+              Files
+            </button>
+          </div>
+        )}
+
+        {activeProject && sidebarMode === 'files' && (
+          <FilesTree
+            selected={activeFile}
+            onSelect={openFileTab}
+            refreshKey={filesRefreshKey}
+          />
+        )}
+
+        {activeProject && sidebarMode === 'project' && (
           <>
             <div className="sidebar-search">
-              <input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search programs / accounts"
-              />
+              <div className="relative">
+                <Search
+                  size={11}
+                  aria-hidden
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-text-subtle pointer-events-none"
+                />
+                <Input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search programs / accounts"
+                  sizeVariant="sm"
+                  className="pl-7"
+                />
+              </div>
             </div>
 
             <div className="tree-section">
-              <div className="tree-section-header" onClick={toggleSessionsSection}>
+              <button
+                type="button"
+                className="tree-section-header"
+                onClick={toggleSessionsSection}
+                aria-expanded={sessionsSectionOpen}
+              >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 9, width: 10, display: 'inline-block' }}>
-                    {sessionsSectionOpen ? '▾' : '▸'}
+                  <span className="inline-flex text-text-subtle">
+                    {sessionsSectionOpen ? (
+                      <ChevronDown size={11} aria-hidden />
+                    ) : (
+                      <ChevronRight size={11} aria-hidden />
+                    )}
                   </span>
                   Sessions
                 </span>
@@ -864,20 +977,21 @@ export function App(): JSX.Element {
                   <span className="tree-section-count">{sessions.length}</span>
                   <span
                     className="tree-section-add"
+                    title="New session"
                     onClick={(e) => {
                       e.stopPropagation();
                       setModal('newSession');
                     }}
                   >
-                    + Add
+                    <Plus size={12} aria-hidden />
                   </span>
                 </span>
-              </div>
+              </button>
 
               {sessionsSectionOpen &&
                 (sessions.length === 0 ? (
-                  <div style={{ padding: '6px 24px', color: 'var(--text-dim)', fontSize: 11 }}>
-                    none yet — click + Add
+                  <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
+                    none yet — click + above
                   </div>
                 ) : (
                   sessions.map((s) => (
@@ -889,7 +1003,7 @@ export function App(): JSX.Element {
                     >
                       <span className="session-dot" />
                       <span className="session-name">{s.name}</span>
-                      <span style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                      <span className="font-mono text-2xs text-text-subtle">
                         {s.accountCount}/{s.mutationCount}
                       </span>
                     </div>
@@ -898,10 +1012,19 @@ export function App(): JSX.Element {
             </div>
 
             <div className="tree-section">
-              <div className="tree-section-header" onClick={toggleProgramsSection}>
+              <button
+                type="button"
+                className="tree-section-header"
+                onClick={toggleProgramsSection}
+                aria-expanded={programsSectionOpen}
+              >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 9, width: 10, display: 'inline-block' }}>
-                    {programsSectionOpen ? '▾' : '▸'}
+                  <span className="inline-flex text-text-subtle">
+                    {programsSectionOpen ? (
+                      <ChevronDown size={11} aria-hidden />
+                    ) : (
+                      <ChevronRight size={11} aria-hidden />
+                    )}
                   </span>
                   Programs
                 </span>
@@ -911,64 +1034,143 @@ export function App(): JSX.Element {
                   </span>
                   <span
                     className="tree-section-add"
+                    title={programsView === 'tree' ? 'Switch to list view' : 'Switch to tree view'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleProgramsView();
+                    }}
+                  >
+                    {programsView === 'tree' ? (
+                      <LayoutList size={10} aria-hidden />
+                    ) : (
+                      <ListTree size={10} aria-hidden />
+                    )}
+                  </span>
+                  <span
+                    className="tree-section-add"
+                    title="Add program"
                     onClick={(e) => {
                       e.stopPropagation();
                       setModal('addProgram');
                     }}
                   >
-                    + Add
+                    <Plus size={12} aria-hidden />
                   </span>
                 </span>
-              </div>
+              </button>
 
-              {programsSectionOpen && (
+              {programsSectionOpen && programsView === 'list' && (
+                <ProgramsListView
+                  programs={visiblePrograms}
+                  idlAttached={idlAttached}
+                  searchTerm={searchTerm}
+                  onProgramOpen={(programId) => {
+                    if (!expandedPrograms.has(programId)) toggleProgramExpanded(programId);
+                  }}
+                  onAccountInspect={(addr) => {
+                    setPendingAccountAddress(addr);
+                    setModal('inspectAccount');
+                  }}
+                  onProgramCtx={(e, programId) => ctx.open(e, programMenu(programId))}
+                  onAccountCtx={(e, addr) => ctx.open(e, accountMenu(addr))}
+                />
+              )}
+
+              {programsSectionOpen && programsView === 'tree' && (
                 <>
                   {visiblePrograms.length === 0 && hiddenProgramList.length === 0 ? (
-                    <div
-                      style={{ padding: '6px 24px', color: 'var(--text-dim)', fontSize: 11 }}
-                    >
-                      {searchTerm ? 'no matches' : 'none yet — click + Add'}
+                    <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
+                      {searchTerm ? 'no matches' : 'none yet — click + above'}
                     </div>
                   ) : (
                     visiblePrograms.map((prog) => {
                       const isExpanded = expandedPrograms.has(prog.programId);
                       const hasIdl = idlAttached.has(prog.programId);
+                      const sourceKind = prog.source?.kind;
+                      const sourceVariant: 'success' | 'accent' | 'default' =
+                        sourceKind === 'cloned'
+                          ? 'success'
+                          : sourceKind === 'localFile'
+                            ? 'accent'
+                            : 'default';
                       return (
                         <div key={prog.programId}>
-                          <div
+                          <button
+                            type="button"
                             className="tree-program"
                             onClick={() => toggleProgramExpanded(prog.programId)}
                             onContextMenu={(e) => ctx.open(e, programMenu(prog.programId))}
+                            aria-expanded={isExpanded}
                           >
-                            <span className="tree-chevron">{isExpanded ? '▾' : '▸'}</span>
+                            <span className="tree-chevron inline-flex text-text-subtle">
+                              {isExpanded ? (
+                                <ChevronDown size={11} aria-hidden />
+                              ) : (
+                                <ChevronRight size={11} aria-hidden />
+                              )}
+                            </span>
                             <span className="tree-program-label">
-                              {prog.label.length > 28
-                                ? `${prog.label.slice(0, 28)}…`
+                              {prog.label.length > 26
+                                ? `${prog.label.slice(0, 26)}…`
                                 : prog.label}
                             </span>
                             <span className="tree-program-badges">
-                              {hasIdl && <span className="badge idl-on">IDL</span>}
-                              <span className="badge">{prog.accounts.length}</span>
+                              {hasIdl && (
+                                <Badge size="sm" variant="accent">
+                                  IDL
+                                </Badge>
+                              )}
+                              {sourceKind && (
+                                <Badge
+                                  size="sm"
+                                  variant={sourceVariant}
+                                  title={
+                                    sourceKind === 'cloned'
+                                      ? 'Cloned from chain'
+                                      : 'Loaded from local file'
+                                  }
+                                >
+                                  {sourceKind === 'cloned' ? 'cloned' : 'local'}
+                                </Badge>
+                              )}
+                              <Badge size="sm" variant="outline">
+                                {prog.accounts.length}
+                              </Badge>
                             </span>
-                          </div>
+                          </button>
                           {isExpanded && (
                             <>
-                              {prog.accounts.map((a) => (
-                                <div
-                                  key={a.address}
-                                  className="tree-account"
-                                  onClick={() => {
-                                    setPendingAccountAddress(a.address);
-                                    setModal('inspectAccount');
-                                  }}
-                                  onContextMenu={(e) => ctx.open(e, accountMenu(a.address))}
-                                  title={a.address}
-                                >
-                                  {a.label === a.address
-                                    ? `${a.address.slice(0, 6)}…${a.address.slice(-4)}`
-                                    : a.label}
-                                </div>
-                              ))}
+                              {prog.accounts.map((a) => {
+                                const hasCustomLabel = a.label && a.label !== a.address;
+                                return (
+                                  <div
+                                    key={a.address}
+                                    className="tree-account group"
+                                    onClick={() => {
+                                      setPendingAccountAddress(a.address);
+                                      setModal('inspectAccount');
+                                    }}
+                                    onContextMenu={(e) => ctx.open(e, accountMenu(a.address))}
+                                  >
+                                    {hasCustomLabel ? (
+                                      <>
+                                        <span className="tree-account-label">{a.label}</span>
+                                        <Pubkey
+                                          value={a.address}
+                                          noCopy
+                                          className="text-2xs text-text-subtle"
+                                        />
+                                      </>
+                                    ) : (
+                                      <Pubkey
+                                        value={a.address}
+                                        noCopy
+                                        className="text-text-muted"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
                               <div
                                 className="tree-add"
                                 onClick={() => {
@@ -976,7 +1178,7 @@ export function App(): JSX.Element {
                                   setModal('addAccount');
                                 }}
                               >
-                                + Add account
+                                <Plus size={10} aria-hidden /> Add account
                               </div>
                             </>
                           )}
@@ -987,23 +1189,34 @@ export function App(): JSX.Element {
 
                   {hiddenProgramList.length > 0 && (
                     <>
-                      <div
+                      <button
+                        type="button"
                         className="tree-program"
                         style={{ color: 'var(--text-dim)', marginTop: 4 }}
                         onClick={() => setHiddenExpanded((v) => !v)}
+                        aria-expanded={hiddenExpanded}
                         title="Programs hidden from sidebar — right-click to restore individually"
                       >
-                        <span className="tree-chevron">
-                          {hiddenExpanded ? '▾' : '▸'}
+                        <span className="tree-chevron inline-flex text-text-subtle">
+                          {hiddenExpanded ? (
+                            <ChevronDown size={11} aria-hidden />
+                          ) : (
+                            <ChevronRight size={11} aria-hidden />
+                          )}
                         </span>
-                        <span className="tree-program-label">Hidden</span>
+                        <span className="tree-program-label inline-flex items-center gap-1">
+                          <EyeOff size={10} aria-hidden /> Hidden
+                        </span>
                         <span className="tree-program-badges">
-                          <span className="badge">{hiddenProgramList.length}</span>
+                          <Badge size="sm" variant="outline">
+                            {hiddenProgramList.length}
+                          </Badge>
                         </span>
-                      </div>
+                      </button>
                       {hiddenExpanded &&
                         hiddenProgramList.map((prog) => (
-                          <div
+                          <button
+                            type="button"
                             key={prog.programId}
                             className="tree-program"
                             style={{ opacity: 0.55 }}
@@ -1011,20 +1224,21 @@ export function App(): JSX.Element {
                             onContextMenu={(e) => ctx.open(e, programMenu(prog.programId))}
                             title="Click to show again"
                           >
-                            <span className="tree-chevron">↶</span>
+                            <span className="tree-chevron inline-flex text-text-subtle">
+                              <EyeOff size={10} aria-hidden />
+                            </span>
                             <span className="tree-program-label">
                               {prog.label.length > 24
                                 ? `${prog.label.slice(0, 24)}…`
                                 : prog.label}
                             </span>
-                          </div>
+                          </button>
                         ))}
                     </>
                   )}
                 </>
               )}
             </div>
-
           </>
         )}
 
@@ -1039,7 +1253,7 @@ export function App(): JSX.Element {
         />
       )}
 
-      <main className="workspace">
+      <main className={`workspace${sidebarMode === 'files' ? ' workspace-files' : ''}`}>
         {error && (
           <div className="error-banner">
             {error} <button onClick={() => setError(null)}>×</button>
@@ -1054,95 +1268,76 @@ export function App(): JSX.Element {
                 <div style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 18 }}>
                   Clone Solana programs + accounts. Patch state. Simulate, submit, replay.
                 </div>
-                <button className="primary" onClick={() => void api.call('app.showWelcome')}>
-                  + Create your first project
-                </button>
+                <Button variant="primary" onClick={() => void api.call('app.showWelcome')}>
+                  <Plus size={13} aria-hidden /> Create your first project
+                </Button>
                 <div style={{ marginTop: 18, fontSize: 11, color: 'var(--text-dim)' }}>
                   Press <span className="kbd">⌘K</span> for command palette
                 </div>
               </div>
             ) : (
               <>
-                <div className="workspace-context">
-                  <span className="workspace-context-chip">
-                    <strong>{activeProject.name}</strong>
-                    <span className="muted">·</span>
-                    <span className="mono">{activeProject.network}</span>
-                  </span>
-                  {activeSessionId ? (
-                    <span className="workspace-context-chip">
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: 'var(--success)',
-                        }}
-                      />
-                      <strong>
-                        {sessions.find((s) => s.id === activeSessionId)?.name ?? '?'}
-                      </strong>
-                      <span className="muted">session</span>
-                    </span>
-                  ) : (
-                    <span className="workspace-context-chip workspace-context-warn">
-                      ⚠ no session — pick one in the sidebar
-                    </span>
-                  )}
-                  <span style={{ flex: 1 }} />
-                  <span className="muted" style={{ fontSize: 11 }}>
-                    {Object.values(activeProject.programs).reduce(
-                      (n, p) => n + p.accounts.length,
-                      0,
-                    )}{' '}
-                    accounts · {Object.keys(activeProject.programs).length} programs
-                  </span>
-                </div>
+                {sidebarMode === 'project' && (
+                  <div className="sub-tabs">
+                    <button
+                      className={`sub-tab${workspaceTab === 'builder' ? ' active' : ''}`}
+                      onClick={() => setWorkspaceTab('builder')}
+                    >
+                      Tx Builder
+                    </button>
+                    <button
+                      className={`sub-tab${workspaceTab === 'workflows' ? ' active' : ''}`}
+                      onClick={() => setWorkspaceTab('workflows')}
+                    >
+                      Workflows
+                    </button>
+                    <button
+                      className={`sub-tab${workspaceTab === 'history' ? ' active' : ''}`}
+                      onClick={() => setWorkspaceTab('history')}
+                    >
+                      History
+                    </button>
+                    <button
+                      className={`sub-tab${workspaceTab === 'patches' ? ' active' : ''}`}
+                      onClick={() => setWorkspaceTab('patches')}
+                    >
+                      Patches
+                    </button>
+                  </div>
+                )}
 
-                <div className="sub-tabs">
-                  <button
-                    className={`sub-tab${workspaceTab === 'builder' ? ' active' : ''}`}
-                    onClick={() => setWorkspaceTab('builder')}
-                  >
-                    Tx Builder
-                  </button>
-                  <button
-                    className={`sub-tab${workspaceTab === 'workflows' ? ' active' : ''}`}
-                    onClick={() => setWorkspaceTab('workflows')}
-                  >
-                    Workflows
-                  </button>
-                  <button
-                    className={`sub-tab${workspaceTab === 'history' ? ' active' : ''}`}
-                    onClick={() => setWorkspaceTab('history')}
-                  >
-                    History
-                  </button>
-                  <button
-                    className={`sub-tab${workspaceTab === 'patches' ? ' active' : ''}`}
-                    onClick={() => setWorkspaceTab('patches')}
-                  >
-                    Patches
-                  </button>
-                </div>
-
-                {workspaceTab === 'builder' && (
-                  <TxBuilderPanel project={activeProject} activeSessionId={activeSessionId} />
-                )}
-                {workspaceTab === 'workflows' && (
-                  <WorkflowsPanel project={activeProject} activeSessionId={activeSessionId} />
-                )}
-                {workspaceTab === 'history' && (
-                  <TxHistoryPanel activeSessionId={activeSessionId} />
-                )}
-                {workspaceTab === 'patches' && (
-                  <PatchesPanel
-                    project={activeProject}
-                    activeSessionId={activeSessionId}
-                    onChange={() => {
+                {sidebarMode === 'files' ? (
+                  <FileTabsAndEditor
+                    openedFiles={openedFiles}
+                    activeFile={activeFile}
+                    onSelect={setActiveFile}
+                    onClose={closeFileTab}
+                    onSaved={() => {
+                      setFilesRefreshKey((k) => k + 1);
                       if (activeProjectId) void reloadProject(activeProjectId);
                     }}
                   />
+                ) : (
+                  <>
+                    {workspaceTab === 'builder' && (
+                      <TxBuilderPanel project={activeProject} activeSessionId={activeSessionId} />
+                    )}
+                    {workspaceTab === 'workflows' && (
+                      <WorkflowsPanel project={activeProject} activeSessionId={activeSessionId} />
+                    )}
+                    {workspaceTab === 'history' && (
+                      <TxHistoryPanel activeSessionId={activeSessionId} />
+                    )}
+                    {workspaceTab === 'patches' && (
+                      <PatchesPanel
+                        project={activeProject}
+                        activeSessionId={activeSessionId}
+                        onChange={() => {
+                          if (activeProjectId) void reloadProject(activeProjectId);
+                        }}
+                      />
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -1171,10 +1366,10 @@ export function App(): JSX.Element {
       <nav className="inspector-rail">
         {(
           [
-            { id: 'details', icon: 'ⓘ', label: 'Details' },
-            { id: 'activity', icon: '↯', label: 'Activity' },
-            { id: 'shortcuts', icon: '⌘', label: 'Shortcuts' },
-          ] as Array<{ id: InspectorTab; icon: string; label: string }>
+            { id: 'details', icon: <Info size={14} aria-hidden />, label: 'Details' },
+            { id: 'activity', icon: <Activity size={14} aria-hidden />, label: 'Activity' },
+            { id: 'shortcuts', icon: <Command size={14} aria-hidden />, label: 'Shortcuts' },
+          ] as Array<{ id: InspectorTab; icon: ReactNode; label: string }>
         ).map((t) => {
           const isActive = inspectorTab === t.id;
           const isOpen = isActive && !rightCollapsed;
@@ -1303,13 +1498,17 @@ export function App(): JSX.Element {
         {activeProject ? (
           <>
             <span className="status-item">
-              <span style={{ color: 'var(--text)' }}>{activeProject.name}</span>
+              <span style={{ color: 'rgb(var(--color-text))' }}>{activeProject.name}</span>
             </span>
-            <span className="status-item">
+            <span className="status-item" title="Network">
+              <span className="status-net-dot" data-net={activeProject.network} aria-hidden />
               <span className="mono">{activeProject.network}</span>
             </span>
+            <span className="status-item mono" title="RPC endpoint">
+              {activeProject.rpcEndpointId}
+            </span>
             {activeSessionId && (
-              <span className="status-item">
+              <span className="status-item" title="Active session">
                 <span className="status-dot" />
                 <span>{sessions.find((s) => s.id === activeSessionId)?.name ?? '?'}</span>
               </span>
@@ -1319,15 +1518,222 @@ export function App(): JSX.Element {
           <span className="status-item">no project</span>
         )}
         <span className="status-spacer" />
-        <span
+        <button
+          type="button"
           className="status-item interactive"
           onClick={() => setPaletteOpen(true)}
           title="Command palette (⌘K)"
+          aria-label="Open command palette"
         >
-          ⌕ ⌘K
-        </span>
+          <Search size={11} aria-hidden /> <Kbd>⌘K</Kbd>
+        </button>
       </footer>
     </div>
+  );
+}
+
+function FileTabsAndEditor({
+  openedFiles,
+  activeFile,
+  onSelect,
+  onClose,
+  onSaved,
+}: {
+  openedFiles: string[];
+  activeFile: string | null;
+  onSelect: (path: string) => void;
+  onClose: (path: string) => void;
+  onSaved: (path: string) => void;
+}): JSX.Element {
+  if (openedFiles.length === 0) {
+    return (
+      <div className="flex-1 min-h-0 flex items-center justify-center">
+        <FileEditor path={null} onSaved={onSaved} />
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-stretch overflow-x-auto border-b border-border bg-surface-0 select-none">
+        {openedFiles.map((path) => {
+          const isActive = path === activeFile;
+          const name = path.split('/').pop() ?? path;
+          return (
+            <div
+              key={path}
+              className={[
+                'group inline-flex items-center gap-1.5 pl-3 pr-1.5 h-8 border-r border-border shrink-0',
+                'text-xs cursor-pointer transition-colors duration-fast relative',
+                isActive
+                  ? 'bg-bg text-text'
+                  : 'bg-surface-0 text-text-muted hover:bg-surface-1/70 hover:text-text',
+              ].join(' ')}
+              onClick={() => onSelect(path)}
+              onAuxClick={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault();
+                  onClose(path);
+                }
+              }}
+              title={path}
+            >
+              {isActive && (
+                <span
+                  aria-hidden
+                  className="absolute top-0 left-0 right-0 h-[2px] bg-accent"
+                />
+              )}
+              <span className="font-mono truncate max-w-[200px]">{name}</span>
+              <button
+                type="button"
+                aria-label={`Close ${name}`}
+                title="Close (middle-click)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(path);
+                }}
+                className={[
+                  'inline-flex items-center justify-center w-4 h-4 rounded',
+                  'text-text-subtle hover:bg-surface-2 hover:text-text transition-colors',
+                ].join(' ')}
+              >
+                <X size={10} aria-hidden />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <FileEditor key={activeFile ?? '__none__'} path={activeFile} onSaved={onSaved} />
+    </div>
+  );
+}
+
+function ProgramsListView({
+  programs,
+  idlAttached,
+  searchTerm,
+  onProgramOpen,
+  onAccountInspect,
+  onProgramCtx,
+  onAccountCtx,
+}: {
+  programs: ProgramEntry[];
+  idlAttached: Set<string>;
+  searchTerm: string;
+  onProgramOpen: (programId: string) => void;
+  onAccountInspect: (address: string) => void;
+  onProgramCtx: (e: React.MouseEvent, programId: string) => void;
+  onAccountCtx: (e: React.MouseEvent, address: string) => void;
+}): JSX.Element {
+  type Row =
+    | { kind: 'program'; programId: string; label: string; hasIdl: boolean; source: string | null; count: number }
+    | { kind: 'account'; programId: string; address: string; label: string };
+
+  const rows: Row[] = [];
+  for (const p of programs) {
+    rows.push({
+      kind: 'program',
+      programId: p.programId,
+      label: p.label,
+      hasIdl: idlAttached.has(p.programId),
+      source: p.source?.kind ?? null,
+      count: p.accounts.length,
+    });
+    for (const a of p.accounts) {
+      rows.push({
+        kind: 'account',
+        programId: p.programId,
+        address: a.address,
+        label: a.label && a.label !== a.address ? a.label : a.address,
+      });
+    }
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
+        {searchTerm ? 'no matches' : 'none yet — click + above'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      {rows.map((row) => {
+        if (row.kind === 'program') {
+          const sourceVariant: 'success' | 'accent' | 'default' =
+            row.source === 'cloned' ? 'success' : row.source === 'localFile' ? 'accent' : 'default';
+          return (
+            <button
+              key={`p:${row.programId}`}
+              type="button"
+              onClick={() => onProgramOpen(row.programId)}
+              onContextMenu={(e) => onProgramCtx(e, row.programId)}
+              className="flex items-center gap-2 px-3 py-1 text-left bg-transparent border-0 hover:bg-surface-1 transition-colors duration-fast"
+              title={row.programId}
+            >
+              <span className="text-text-subtle inline-flex w-3 justify-center">
+                <span className="block w-1 h-1 rounded-full bg-accent" />
+              </span>
+              <span className="text-xs text-text truncate flex-1 min-w-0">{row.label}</span>
+              {row.hasIdl && (
+                <Badge size="sm" variant="accent">
+                  IDL
+                </Badge>
+              )}
+              {row.source && (
+                <Badge size="sm" variant={sourceVariant}>
+                  {row.source === 'cloned' ? 'cloned' : 'local'}
+                </Badge>
+              )}
+              <Badge size="sm" variant="outline">
+                {row.count}
+              </Badge>
+            </button>
+          );
+        }
+        return (
+          <button
+            key={`a:${row.address}`}
+            type="button"
+            onClick={() => onAccountInspect(row.address)}
+            onContextMenu={(e) => onAccountCtx(e, row.address)}
+            className="flex items-center gap-2 pl-6 pr-3 py-1 text-left bg-transparent border-0 hover:bg-surface-1 transition-colors duration-fast"
+            title={row.address}
+          >
+            <span className="text-text-subtle inline-flex w-3 justify-center">
+              <span className="block w-1 h-1 rounded-full bg-text-subtle" />
+            </span>
+            <span className="text-2xs text-text-muted truncate flex-1 min-w-0 font-mono">
+              {row.label === row.address
+                ? `${row.address.slice(0, 4)}…${row.address.slice(-4)}`
+                : row.label}
+            </span>
+            {row.label !== row.address && (
+              <span className="text-2xs text-text-subtle font-mono">
+                {row.address.slice(0, 4)}…{row.address.slice(-4)}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ThemeToggle(): JSX.Element {
+  const { theme, toggle } = useTheme();
+  const isDark = theme === 'dark';
+  return (
+    <button
+      type="button"
+      className="header-side-toggle"
+      onClick={toggle}
+      title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-label="Toggle theme"
+    >
+      {isDark ? <Sun size={13} /> : <Moon size={13} />}
+    </button>
   );
 }
 
@@ -1338,7 +1744,7 @@ function NavRailButton({
   collapsed,
   onClick,
 }: {
-  icon: string;
+  icon: ReactNode;
   label: string;
   active: boolean;
   collapsed: boolean;
@@ -1353,9 +1759,16 @@ function NavRailButton({
       : `Hide sidebar — ${label} (⌘B)`
     : label;
   return (
-    <div className={classes.join(' ')} onClick={onClick} title={tip}>
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      className={classes.join(' ')}
+      onClick={onClick}
+      title={tip}
+    >
       {icon}
-    </div>
+    </button>
   );
 }
 
@@ -1483,9 +1896,9 @@ function PatchesPanel({
                   />
                 </td>
                 <td>
-                  <button className="danger" onClick={() => void remove(scope, scopeId, p.id)}>
-                    Delete
-                  </button>
+                  <Button variant="danger" size="xs" onClick={() => void remove(scope, scopeId, p.id)}>
+                    <Trash2 size={11} aria-hidden /> Delete
+                  </Button>
                 </td>
               </tr>
             );

@@ -3,6 +3,19 @@ import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import type { Project } from '../types';
+import {
+  Badge,
+  Button,
+  ErrorState,
+  Field,
+  Input,
+  Pubkey,
+  Select,
+  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from '../ui';
 
 interface EditableField {
   name: string;
@@ -77,9 +90,6 @@ export function PatchAccountForm({
         }
         op = { kind: 'rawSplice', offset: Number(offset), bytes };
       }
-      // bigint can't survive structured clone via IPC reliably — encode setLamports as string then
-      // re-cast in handler when needed. Our PatchOp schema expects bigint — for now we send string
-      // and the handler stores as-is (patch engine cast happens at apply time).
       await api.call('patch.create', {
         scope,
         scopeId: scope === 'project' ? projectId : sessionId,
@@ -95,112 +105,170 @@ export function PatchAccountForm({
   };
 
   return (
-    <>
-      <h3>
-        Patch {address.slice(0, 6)}…{address.slice(-4)}
-      </h3>
-      {err && <div className="error-banner">{err}</div>}
-
-      <label>Scope</label>
-      <div className="row">
-        <button
-          className={scope === 'project' ? 'primary' : ''}
-          onClick={() => setScope('project')}
-        >
-          Project
-        </button>
-        <button
-          className={scope === 'session' ? 'primary' : ''}
-          disabled={!sessionId}
-          onClick={() => setScope('session')}
-        >
-          Session
-        </button>
+    <div className="flex flex-col gap-4 min-w-[560px] max-w-[720px]">
+      <div>
+        <h3 className="m-0 text-md font-semibold">Patch account</h3>
+        <div className="mt-1">
+          <Pubkey value={address} truncate={6} className="text-text-muted text-xs" />
+        </div>
       </div>
 
-      <label>Decoded</label>
-      {decodeErr && <div style={{ color: 'var(--danger)', fontSize: 11 }}>{decodeErr}</div>}
-      {decoded && (
-        <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: 8, maxHeight: 200, overflow: 'auto' }}>
-          <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 4 }}>
-            program: <span className="mono">{decoded.programId}</span> · accountName:{' '}
-            <span className="mono">{decoded.accountName ?? '<no IDL match>'}</span> · {decoded.dataLen} bytes
-          </div>
-          <pre className="mono" style={{ margin: 0, fontSize: 11 }}>
-            {JSON.stringify(decoded.value ?? decoded.raw ?? '(raw bytes)', null, 2)}
-          </pre>
-        </div>
-      )}
+      {err && <ErrorState title="Failed to save patch" message={err} />}
 
-      <label>Patch type</label>
-      <select value={kind} onChange={(e) => setKind(e.target.value as PatchKind)}>
-        <option value="setField">setField (IDL-aware)</option>
-        <option value="setLamports">setLamports</option>
-        <option value="setOwner">setOwner</option>
-        <option value="rawSplice">rawSplice (hex)</option>
-      </select>
+      <Field label="Scope" help="Project patches apply to every session; session patches to one.">
+        <Tabs value={scope} onValueChange={(v) => setScope(v as 'project' | 'session')}>
+          <TabsList>
+            <TabsTrigger value="project">Project</TabsTrigger>
+            <TabsTrigger value="session" disabled={!sessionId}>
+              Session
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </Field>
+
+      <div>
+        <div className="text-xs text-text-muted mb-1.5">Decoded</div>
+        {decodeErr && <ErrorState message={decodeErr} />}
+        {decoded ? (
+          <div className="rounded-md border border-border bg-bg p-3 max-h-[220px] overflow-auto">
+            <div className="text-2xs text-text-subtle inline-flex items-center gap-1.5 flex-wrap mb-2">
+              <span>program:</span>
+              <Pubkey value={decoded.programId} className="text-text-muted" />
+              <span>·</span>
+              <span>
+                {decoded.accountName ?? (
+                  <span className="italic text-text-subtle">no IDL match</span>
+                )}
+              </span>
+              <span>·</span>
+              <Badge size="sm" variant="outline">
+                {decoded.dataLen} bytes
+              </Badge>
+              {decoded.decoder && (
+                <Badge size="sm" variant={decoded.decoder === 'anchor' ? 'accent' : 'default'}>
+                  {decoded.decoder}
+                </Badge>
+              )}
+            </div>
+            <pre className="font-mono text-2xs leading-relaxed m-0 text-text">
+              {JSON.stringify(decoded.value ?? decoded.raw ?? '(raw bytes)', jsonReplacer, 2)}
+            </pre>
+          </div>
+        ) : (
+          !decodeErr && (
+            <div className="py-3">
+              <Spinner label="Decoding…" />
+            </div>
+          )
+        )}
+      </div>
+
+      <Field label="Patch type">
+        <Select value={kind} onChange={(e) => setKind(e.target.value as PatchKind)}>
+          <option value="setField">setField (IDL-aware)</option>
+          <option value="setLamports">setLamports</option>
+          <option value="setOwner">setOwner</option>
+          <option value="rawSplice">rawSplice (hex)</option>
+        </Select>
+      </Field>
 
       {kind === 'setField' && (
         <>
           {decoded?.editableFields && decoded.editableFields.length > 0 && (
-            <>
-              <label>Editable fields ({decoded.decoder})</label>
-              <select
-                value={fieldPath}
-                onChange={(e) => setFieldPath(e.target.value)}
-              >
+            <Field label={`Editable fields (${decoded.decoder})`}>
+              <Select value={fieldPath} onChange={(e) => setFieldPath(e.target.value)}>
                 <option value="">— pick a field —</option>
                 {decoded.editableFields.map((f) => (
                   <option key={f.name} value={f.name}>
                     {f.name} : {f.type}
                   </option>
                 ))}
-              </select>
-            </>
+              </Select>
+            </Field>
           )}
-          <label>Field path (dotted) {decoded?.editableFields ? '— or type manually' : ''}</label>
-          <input
-            value={fieldPath}
-            onChange={(e) => setFieldPath(e.target.value)}
-            placeholder={decoded?.decoder === 'native' ? 'mintAuthority / supply / decimals …' : 'admin'}
-            className="mono"
-          />
-          <label>Value (JSON-encoded)</label>
-          <input
-            value={valueJson}
-            onChange={(e) => setValueJson(e.target.value)}
-            placeholder={'"<base58 pubkey>" or "1000000" or null'}
-            className="mono"
-          />
+          <Field
+            label="Field path (dotted)"
+            help={decoded?.editableFields ? 'Or type manually.' : undefined}
+          >
+            <Input
+              value={fieldPath}
+              onChange={(e) => setFieldPath(e.target.value)}
+              placeholder={
+                decoded?.decoder === 'native'
+                  ? 'mintAuthority / supply / decimals …'
+                  : 'admin'
+              }
+              className="font-mono"
+            />
+          </Field>
+          <Field label="Value (JSON-encoded)">
+            <Input
+              value={valueJson}
+              onChange={(e) => setValueJson(e.target.value)}
+              placeholder={'"<base58 pubkey>" or "1000000" or null'}
+              className="font-mono"
+            />
+          </Field>
         </>
       )}
       {kind === 'setLamports' && (
-        <>
-          <label>Lamports</label>
-          <input value={lamports} onChange={(e) => setLamports(e.target.value)} placeholder="1000000000" />
-        </>
+        <Field label="Lamports">
+          <Input
+            value={lamports}
+            onChange={(e) => setLamports(e.target.value)}
+            placeholder="1000000000"
+            className="font-mono"
+          />
+        </Field>
       )}
       {kind === 'setOwner' && (
-        <>
-          <label>New owner (base58)</label>
+        <Field label="New owner (base58)">
           <AddressInput value={owner} onChange={setOwner} suggestions={suggestions} />
-        </>
+        </Field>
       )}
       {kind === 'rawSplice' && (
         <>
-          <label>Offset</label>
-          <input value={offset} onChange={(e) => setOffset(e.target.value)} />
-          <label>Bytes (hex)</label>
-          <input value={hexBytes} onChange={(e) => setHexBytes(e.target.value)} className="mono" />
+          <Field label="Offset">
+            <Input
+              value={offset}
+              onChange={(e) => setOffset(e.target.value)}
+              className="font-mono max-w-[160px]"
+            />
+          </Field>
+          <Field label="Bytes (hex)">
+            <Input
+              value={hexBytes}
+              onChange={(e) => setHexBytes(e.target.value)}
+              className="font-mono"
+            />
+          </Field>
         </>
       )}
 
-      <div className="actions">
-        <button onClick={() => onDone()}>Cancel</button>
-        <button className="primary" disabled={busy} onClick={submit}>
-          {busy ? 'Saving…' : 'Save patch'}
-        </button>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button variant="ghost" onClick={() => onDone()}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={submit}>
+          {busy ? (
+            <>
+              <Spinner size={12} /> Saving…
+            </>
+          ) : (
+            'Save patch'
+          )}
+        </Button>
       </div>
-    </>
+    </div>
   );
+}
+
+function jsonReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Uint8Array) {
+    return Array.from(value)
+      .map((c) => c.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return value;
 }

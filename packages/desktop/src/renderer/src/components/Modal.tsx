@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Dialog, DialogContent } from '../ui';
 
 export function Modal({
   onClose,
@@ -8,13 +9,10 @@ export function Modal({
   children: ReactNode;
 }): JSX.Element {
   return (
-    <div
-      className="modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="modal">{children}</div>
-    </div>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent size="xl" className="max-w-fit">
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { BrowserWindow, Menu, app, ipcMain } from 'electron';
+import { BrowserWindow, Menu, app, ipcMain, nativeImage } from 'electron';
 import { getAppStore } from './app-store';
 import { registerIpc } from './ipc';
 import {
@@ -8,6 +8,29 @@ import {
   showWelcomeWindow,
 } from './project-windows';
 import { setWorkerScriptPath, shutdownAll } from './workerMgr';
+
+// Brand identity — must run before app.whenReady() so the dock label,
+// menu-bar app name, and About panel pick it up in dev preview too.
+// (Packaged builds get this from Info.plist / electron-builder's productName.)
+app.setName('Relay');
+if (process.platform === 'win32') app.setAppUserModelId('io.relay.desktop');
+
+const brandIconPath = join(
+  __dirname,
+  '../../build',
+  process.platform === 'win32'
+    ? 'icon.ico'
+    : process.platform === 'darwin'
+      ? 'icon.icns'
+      : 'icon.png',
+);
+
+app.setAboutPanelOptions({
+  applicationName: 'Relay',
+  applicationVersion: app.getVersion(),
+  copyright: 'Copyright © 2026 hoangtuanictvn',
+  iconPath: brandIconPath,
+});
 
 function registerWindowControls(): void {
   ipcMain.on('relay:window:minimize', (e) => {
@@ -94,6 +117,16 @@ function refreshMenu(): void {
 
 app.whenReady().then(async () => {
   setWorkerScriptPath(join(__dirname, 'worker.cjs'));
+
+  // macOS dock icon in dev preview — packaged .app uses Info.plist instead.
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      const img = nativeImage.createFromPath(brandIconPath);
+      if (!img.isEmpty()) app.dock.setIcon(img);
+    } catch {
+      /* ignore */
+    }
+  }
 
   await getAppStore().load();
   registerIpc();

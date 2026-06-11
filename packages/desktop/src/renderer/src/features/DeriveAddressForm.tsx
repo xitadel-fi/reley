@@ -1,5 +1,19 @@
+import { Check, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../api';
+import {
+  Button,
+  ErrorState,
+  Field,
+  IconButton,
+  Input,
+  Pubkey,
+  Select,
+  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from '../ui';
 
 type Tab = 'ata' | 'pda';
 
@@ -19,12 +33,10 @@ export function DeriveAddressForm({
 }): JSX.Element {
   const [tab, setTab] = useState<Tab>('ata');
 
-  // ATA fields
   const [owner, setOwner] = useState('');
   const [mint, setMint] = useState('');
   const [token2022, setToken2022] = useState(false);
 
-  // PDA fields
   const [programId, setProgramId] = useState('');
   const [seeds, setSeeds] = useState<SeedRow[]>([{ kind: 'utf8', value: '' }]);
 
@@ -61,60 +73,51 @@ export function DeriveAddressForm({
   };
 
   return (
-    <>
-      <h3>Derive address</h3>
-      {err && <div className="error-banner">{err}</div>}
+    <div className="flex flex-col gap-4 min-w-[520px] max-w-[680px]">
+      <h3 className="m-0 text-md font-semibold">Derive address</h3>
+      {err && <ErrorState title="Derivation failed" message={err} />}
 
-      <div className="row" style={{ marginBottom: 10 }}>
-        <button className={tab === 'ata' ? 'primary' : ''} onClick={() => setTab('ata')}>
-          Associated Token Account
-        </button>
-        <button className={tab === 'pda' ? 'primary' : ''} onClick={() => setTab('pda')}>
-          PDA (custom seeds)
-        </button>
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+        <TabsList>
+          <TabsTrigger value="ata">Associated Token Account</TabsTrigger>
+          <TabsTrigger value="pda">PDA (custom seeds)</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {tab === 'ata' && (
-        <>
-          <label>Owner (wallet pubkey)</label>
-          <input
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            className="mono"
-            list="derive-owner-suggest"
-          />
-          <datalist id="derive-owner-suggest">
-            {suggestions.map((s) => (
-              <option key={s.pubkey} value={s.pubkey}>
-                {s.label}
-              </option>
-            ))}
-          </datalist>
-          <label>Mint</label>
-          <input
-            value={mint}
-            onChange={(e) => setMint(e.target.value)}
-            className="mono"
-            list="derive-mint-suggest"
-          />
-          <datalist id="derive-mint-suggest">
-            {suggestions.map((s) => (
-              <option key={s.pubkey} value={s.pubkey}>
-                {s.label}
-              </option>
-            ))}
-          </datalist>
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              textTransform: 'none',
-              letterSpacing: 0,
-              fontSize: 12,
-              color: 'var(--text)',
-            }}
-          >
+        <div className="flex flex-col gap-3">
+          <Field label="Owner (wallet pubkey)" required>
+            <Input
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              className="font-mono"
+              list="derive-owner-suggest"
+              autoFocus
+            />
+            <datalist id="derive-owner-suggest">
+              {suggestions.map((s) => (
+                <option key={s.pubkey} value={s.pubkey}>
+                  {s.label}
+                </option>
+              ))}
+            </datalist>
+          </Field>
+          <Field label="Mint" required>
+            <Input
+              value={mint}
+              onChange={(e) => setMint(e.target.value)}
+              className="font-mono"
+              list="derive-mint-suggest"
+            />
+            <datalist id="derive-mint-suggest">
+              {suggestions.map((s) => (
+                <option key={s.pubkey} value={s.pubkey}>
+                  {s.label}
+                </option>
+              ))}
+            </datalist>
+          </Field>
+          <label className="inline-flex items-center gap-2 text-xs text-text cursor-pointer">
             <input
               type="checkbox"
               checked={token2022}
@@ -122,121 +125,133 @@ export function DeriveAddressForm({
             />
             Mint uses Token-2022
           </label>
-        </>
+        </div>
       )}
 
       {tab === 'pda' && (
-        <>
-          <label>Program ID</label>
-          <input
-            value={programId}
-            onChange={(e) => setProgramId(e.target.value)}
-            className="mono"
-            list="derive-programid-suggest"
-          />
-          <datalist id="derive-programid-suggest">
-            {suggestions.map((s) => (
-              <option key={s.pubkey} value={s.pubkey}>
-                {s.label}
-              </option>
-            ))}
-          </datalist>
-          <label>Seeds</label>
-          {seeds.map((s, i) => (
-            <div className="row" key={i} style={{ marginTop: 4 }}>
-              <select
-                value={s.kind}
-                onChange={(e) =>
-                  setSeeds((prev) =>
-                    prev.map((x, idx) =>
-                      idx === i ? { ...x, kind: e.target.value as SeedRow['kind'] } : x,
-                    ),
-                  )
-                }
-                style={{ width: 110 }}
-              >
-                <option value="utf8">utf8</option>
-                <option value="pubkey">pubkey</option>
-                <option value="hex">hex</option>
-                <option value="u8">u8</option>
-                <option value="u32">u32 LE</option>
-                <option value="u64">u64 LE</option>
-              </select>
-              <input
-                value={s.value}
-                onChange={(e) =>
-                  setSeeds((prev) =>
-                    prev.map((x, idx) => (idx === i ? { ...x, value: e.target.value } : x)),
-                  )
-                }
-                className="mono"
-                style={{ flex: 1 }}
-                list={s.kind === 'pubkey' ? `derive-seed-pubkey-${i}` : undefined}
-              />
-              {s.kind === 'pubkey' && (
-                <datalist id={`derive-seed-pubkey-${i}`}>
-                  {suggestions.map((sg) => (
-                    <option key={sg.pubkey} value={sg.pubkey}>
-                      {sg.label}
-                    </option>
-                  ))}
-                </datalist>
-              )}
-              <button
-                className="danger"
-                onClick={() => setSeeds((prev) => prev.filter((_, idx) => idx !== i))}
-              >
-                ×
-              </button>
+        <div className="flex flex-col gap-3">
+          <Field label="Program ID" required>
+            <Input
+              value={programId}
+              onChange={(e) => setProgramId(e.target.value)}
+              className="font-mono"
+              list="derive-programid-suggest"
+              autoFocus
+            />
+            <datalist id="derive-programid-suggest">
+              {suggestions.map((s) => (
+                <option key={s.pubkey} value={s.pubkey}>
+                  {s.label}
+                </option>
+              ))}
+            </datalist>
+          </Field>
+          <div>
+            <div className="text-xs font-medium text-text-muted mb-1.5">Seeds</div>
+            <div className="flex flex-col gap-2">
+              {seeds.map((s, i) => (
+                <div key={i} className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
+                  <Select
+                    value={s.kind}
+                    sizeVariant="sm"
+                    onChange={(e) =>
+                      setSeeds((prev) =>
+                        prev.map((x, idx) =>
+                          idx === i ? { ...x, kind: e.target.value as SeedRow['kind'] } : x,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="utf8">utf8</option>
+                    <option value="pubkey">pubkey</option>
+                    <option value="hex">hex</option>
+                    <option value="u8">u8</option>
+                    <option value="u32">u32 LE</option>
+                    <option value="u64">u64 LE</option>
+                  </Select>
+                  <Input
+                    value={s.value}
+                    sizeVariant="sm"
+                    className="font-mono"
+                    onChange={(e) =>
+                      setSeeds((prev) =>
+                        prev.map((x, idx) =>
+                          idx === i ? { ...x, value: e.target.value } : x,
+                        ),
+                      )
+                    }
+                    list={s.kind === 'pubkey' ? `derive-seed-pubkey-${i}` : undefined}
+                  />
+                  {s.kind === 'pubkey' && (
+                    <datalist id={`derive-seed-pubkey-${i}`}>
+                      {suggestions.map((sg) => (
+                        <option key={sg.pubkey} value={sg.pubkey}>
+                          {sg.label}
+                        </option>
+                      ))}
+                    </datalist>
+                  )}
+                  <IconButton
+                    icon={<X size={12} />}
+                    label="Remove seed"
+                    size="sm"
+                    variant="danger"
+                    onClick={() =>
+                      setSeeds((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                  />
+                </div>
+              ))}
             </div>
-          ))}
-          <button
-            style={{ marginTop: 6 }}
-            onClick={() => setSeeds((prev) => [...prev, { kind: 'utf8', value: '' }])}
-          >
-            + Add seed
-          </button>
-        </>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => setSeeds((prev) => [...prev, { kind: 'utf8', value: '' }])}
+            >
+              <Plus size={11} aria-hidden /> Add seed
+            </Button>
+          </div>
+        </div>
       )}
 
       {result && (
-        <div
-          style={{
-            marginTop: 12,
-            background: 'var(--bg)',
-            border: '1px solid var(--success)',
-            borderRadius: 4,
-            padding: 8,
-          }}
-        >
-          <div className="mono" style={{ fontSize: 11, wordBreak: 'break-all' }}>
-            {result.address}
+        <div className="rounded-md border border-success/40 bg-success/5 p-3">
+          <div className="text-2xs text-success uppercase tracking-wider font-semibold mb-1.5">
+            <Check size={11} aria-hidden className="inline mr-1" /> Derived
           </div>
+          <Pubkey value={result.address} full className="text-text break-all" />
           {result.bump !== undefined && (
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
-              bump: {result.bump}
-            </div>
+            <div className="text-2xs text-text-muted mt-1.5 font-mono">bump: {result.bump}</div>
           )}
         </div>
       )}
 
-      <div className="actions">
-        <button onClick={onClose}>Close</button>
-        <button onClick={derive} disabled={busy}>
-          {busy ? 'Deriving…' : 'Derive'}
-        </button>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+        <Button variant="outline" onClick={() => void derive()} disabled={busy}>
+          {busy ? (
+            <>
+              <Spinner size={12} /> Deriving…
+            </>
+          ) : (
+            'Derive'
+          )}
+        </Button>
         {result && (
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             onClick={() => {
               onPick(result.address);
               onClose();
             }}
           >
             Use this address
-          </button>
+          </Button>
         )}
       </div>
-    </>
+    </div>
   );
 }
