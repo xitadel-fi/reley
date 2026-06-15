@@ -82,10 +82,14 @@ export function SnapshotsPanel({
     }
   };
 
-  const restore = async (snapshotId: string): Promise<void> => {
+  const restore = async (snapshotId: string, restoreVersions: boolean): Promise<void> => {
     setBusy(true);
     try {
-      await api.call('snapshot.restore', { sessionId: activeSessionId, snapshotId });
+      await api.call('snapshot.restore', {
+        sessionId: activeSessionId,
+        snapshotId,
+        restoreVersions,
+      });
       onChange();
     } catch (e) {
       setErr(String(e));
@@ -174,9 +178,18 @@ export function SnapshotsPanel({
                       <Button
                         variant="outline"
                         size="xs"
-                        onClick={() => void restore(s.id)}
+                        title="Restore state only (keep current pinned versions)"
+                        onClick={() => void restore(s.id, false)}
                       >
                         <RotateCcw size={11} aria-hidden /> Restore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        title="Restore state AND the program-version overrides captured at save"
+                        onClick={() => void restore(s.id, true)}
+                      >
+                        + versions
                       </Button>
                       <Button
                         variant="ghost"

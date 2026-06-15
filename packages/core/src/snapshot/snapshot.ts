@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ErrorCode, RelayError, type SessionState, type SnapshotRef } from '@relay/shared';
 import { sha256Hex } from '../util/hash.js';
 
-export const SNAPSHOT_FORMAT_VERSION = 1;
+export const SNAPSHOT_FORMAT_VERSION = 2;
 
 interface SnapshotPayload {
   formatVersion: number;
@@ -11,6 +11,14 @@ interface SnapshotPayload {
   accounts: SessionState['accounts'];
   sessionPatches: SessionState['sessionPatches'];
   currentSlot: bigint;
+  /**
+   * Active program version per program at capture time. Lets restore optionally
+   * also rewind the session's overrides so observed state matches the original
+   * ELF bytes. New in v2.
+   */
+  programVersions?: Record<string, string>;
+  /** Session-level overrides at capture time. */
+  programVersionOverrides?: Record<string, string>;
 }
 
 /**
@@ -25,6 +33,10 @@ export function serializeSnapshot(payload: SnapshotPayload): Uint8Array {
 export function deserializeSnapshot(bytes: Uint8Array): SnapshotPayload {
   const text = Buffer.from(bytes).toString('utf8');
   const parsed = JSON.parse(text, canonicalReviver) as SnapshotPayload;
+  if (parsed.formatVersion === 1) {
+    // v1 snapshots: no version info captured. Treat as if no overrides were set.
+    return { ...parsed, formatVersion: SNAPSHOT_FORMAT_VERSION };
+  }
   if (parsed.formatVersion !== SNAPSHOT_FORMAT_VERSION) {
     throw new RelayError(
       ErrorCode.INTERNAL,
@@ -38,7 +50,10 @@ export function snapshotFingerprint(bytes: Uint8Array): string {
   return sha256Hex(bytes);
 }
 
-export function captureFromSession(session: SessionState): SnapshotPayload {
+export function captureFromSession(
+  session: SessionState,
+  projectActiveVersions?: Record<string, string>,
+): SnapshotPayload {
   return {
     formatVersion: SNAPSHOT_FORMAT_VERSION,
     sessionId: session.id,
@@ -48,13 +63,33 @@ export function captureFromSession(session: SessionState): SnapshotPayload {
     accounts: session.accounts,
     sessionPatches: session.sessionPatches,
     currentSlot: session.currentSlot,
+    ...(projectActiveVersions && { programVersions: projectActiveVersions }),
+    ...(session.programVersionOverrides && {
+      programVersionOverrides: session.programVersionOverrides,
+    }),
   };
 }
 
-export function applySnapshot(session: SessionState, payload: SnapshotPayload): void {
+export interface ApplySnapshotOptions {
+  /** When true, restore programVersionOverrides too (defaults false). */
+  restoreVersions?: boolean;
+}
+
+export function applySnapshot(
+  session: SessionState,
+  payload: SnapshotPayload,
+  opts: ApplySnapshotOptions = {},
+): void {
   session.accounts = payload.accounts;
   session.sessionPatches = payload.sessionPatches;
   session.currentSlot = payload.currentSlot;
+  if (opts.restoreVersions) {
+    if (payload.programVersionOverrides) {
+      session.programVersionOverrides = { ...payload.programVersionOverrides };
+    } else {
+      delete session.programVersionOverrides;
+    }
+  }
   // tx history is left intact — snapshots represent state, not history (P6 design choice)
 }
 

@@ -12,6 +12,8 @@ declare global {
         projectRoot: string | null;
         isWelcome: boolean;
       };
+      onMenu(cb: (cmd: string) => void): () => void;
+      onFilesChanged(cb: (info: { paths: string[] }) => void): () => void;
     };
   }
 }
@@ -22,4 +24,6 @@ export const api = {
   platform: window.relay.platform,
   windowCtl: window.relay.window,
   context: window.relay.context,
+  onMenu: window.relay.onMenu,
+  onFilesChanged: window.relay.onFilesChanged,
 };

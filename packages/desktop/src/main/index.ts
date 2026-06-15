@@ -7,6 +7,7 @@ import {
   focusOrOpenProjectWindow,
   showWelcomeWindow,
 } from './project-windows';
+import { stopAllWatchers } from './file-watcher';
 import { setWorkerScriptPath, shutdownAll } from './workerMgr';
 
 // Brand identity — must run before app.whenReady() so the dock label,
@@ -87,11 +88,22 @@ function buildMenu(): Menu {
   };
 
   const template: Electron.MenuItemConstructorOptions[] = [];
+  const settingsItem: Electron.MenuItemConstructorOptions = {
+    label: 'Settings…',
+    accelerator: 'CmdOrCtrl+,',
+    click: () => {
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+      win?.webContents.send('relay:menu', 'open-settings');
+    },
+  };
+
   if (isMac) {
     template.push({
       label: app.name,
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        settingsItem,
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -107,6 +119,9 @@ function buildMenu(): Menu {
   template.push({ role: 'editMenu' });
   template.push({ role: 'viewMenu' });
   template.push({ role: 'windowMenu' });
+  if (!isMac) {
+    template.push({ label: 'Preferences', submenu: [settingsItem] });
+  }
 
   return Menu.buildFromTemplate(template);
 }
@@ -144,10 +159,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', async () => {
+  stopAllWatchers();
   await shutdownAll();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', async () => {
+  stopAllWatchers();
   await shutdownAll();
 });

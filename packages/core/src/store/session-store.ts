@@ -57,6 +57,25 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Pin (or clear) a program version override for one session. Passing
+   * `versionId: null` removes the override so the session falls back to the
+   * project-level active version.
+   */
+  pinProgramVersion(sessionId: string, programId: string, versionId: string | null): SessionState {
+    const s = this.get(sessionId);
+    if (!s.programVersionOverrides) s.programVersionOverrides = {};
+    if (versionId == null) {
+      delete s.programVersionOverrides[programId];
+      if (Object.keys(s.programVersionOverrides).length === 0) {
+        delete s.programVersionOverrides;
+      }
+    } else {
+      s.programVersionOverrides[programId] = versionId;
+    }
+    return s;
+  }
+
   reset(id: string): SessionState {
     const s = this.get(id);
     s.accounts = {};

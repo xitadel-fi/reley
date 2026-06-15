@@ -47,6 +47,7 @@ export async function createProjectFolder(
   await mkdir(join(relayDir, 'programs'), { recursive: true });
   await mkdir(join(relayDir, 'tx-templates'), { recursive: true });
   await mkdir(join(relayDir, 'workflows'), { recursive: true });
+  await mkdir(join(relayDir, 'test-suites'), { recursive: true });
   await mkdir(join(relayDir, 'scripts'), { recursive: true });
   await mkdir(join(relayDir, 'patches'), { recursive: true });
 
@@ -73,20 +74,18 @@ export async function createProjectFolder(
 }
 
 /**
- * Copy bundled SKILL.md files into `<projectRoot>/.claude/skills/`. Idempotent
- * (skips overwrite if a same-named skill dir already exists). Errors are
- * swallowed — missing skills shouldn't block project creation.
+ * Sync bundled SKILL.md files into `<projectRoot>/.claude/skills/`. Force-
+ * overwrites the bundled relay-* skill dirs so app updates ship fresh docs to
+ * existing projects. User-added skills under different names are untouched
+ * (cpAsync only writes paths that exist in the source tree). Errors swallowed.
  */
 async function copyBundledSkills(projectPath: string): Promise<void> {
   try {
-    // Bundled skills live at <appRoot>/skills/. From __dirname (out/main) the
-    // skills dir resolves at ../../skills relative to the built file. In the
-    // packaged .app this maps to Contents/Resources/app/skills/.
     const src = join(__dirname, '..', '..', 'skills');
     if (!existsSync(src)) return;
     const dest = join(projectPath, '.claude', 'skills');
     await mkdir(dest, { recursive: true });
-    await cpAsync(src, dest, { recursive: true, force: false, errorOnExist: false });
+    await cpAsync(src, dest, { recursive: true, force: true, errorOnExist: false });
   } catch {
     /* non-fatal: project still usable without skills */
   }
@@ -109,6 +108,9 @@ export async function focusOrOpenProjectWindow(projectPath: string): Promise<voi
     }
     pathToWindow.delete(projectPath);
   }
+  // Re-sync bundled relay-* skills on every open so app upgrades reach
+  // existing projects. Fire-and-forget; window doesn't wait on it.
+  void copyBundledSkills(projectPath);
   const win = createProjectWindow({ projectRoot: projectPath });
   windowToPath.set(win.id, projectPath);
   pathToWindow.set(projectPath, win.id);
@@ -204,11 +206,27 @@ function createProjectWindow(opts: CreateWinOptions): BrowserWindow {
       windowToPath.delete(win.id);
       pathToWindow.delete(path);
     }
+    void (async () => {
+      try {
+        const { stopWatcher } = await import('./file-watcher');
+        stopWatcher(win.id);
+      } catch {
+        /* ignore */
+      }
+    })();
     void shutdownWorkerForWindow(win.id);
   });
 
   if (opts.projectRoot) {
     void spawnWorkerForWindow(win.id, { projectRoot: opts.projectRoot } satisfies SpawnOptions);
+    void (async () => {
+      try {
+        const { startWatcher } = await import('./file-watcher');
+        startWatcher(win.id, opts.projectRoot!);
+      } catch {
+        /* ignore */
+      }
+    })();
   }
 
   const isDev = process.env.ELECTRON_RENDERER_URL !== undefined;

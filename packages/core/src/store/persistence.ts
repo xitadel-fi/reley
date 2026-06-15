@@ -1,13 +1,16 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { ErrorCode, RelayError } from '@relay/shared';
 import type {
   AccountEntry,
   Patch,
   ProgramEntry,
+  ProgramVersion,
   ScriptEntry,
   SessionState,
+  TestSuite,
   TxTemplate,
   Workflow,
 } from '@relay/shared';
@@ -43,6 +46,7 @@ const MANIFEST_MIGRATIONS: Record<number, (raw: any) => any> = {
       scripts: _s,
       txTemplates: _tt,
       workflows: _wf,
+      testSuites: _ts,
       idlBindings: _ib,
       sessionIds,
       ...rest
@@ -118,7 +122,7 @@ export class ProjectManifestSink {
 
 /**
  * One JSON file per entity in `<dir>/<id>.json`. saveAll writes every entity
- * and prunes files for ids no longer present. Per-file atomic via tmp+rename.
+ * and prunes files for ids no longer present. Per-file direct write.
  */
 class IdFolderSink<T extends { id: string }> {
   constructor(private readonly dir: string) {}
@@ -158,13 +162,76 @@ class IdFolderSink<T extends { id: string }> {
 
 export class TxTemplateFolderSink extends IdFolderSink<TxTemplate> {}
 export class WorkflowFolderSink extends IdFolderSink<Workflow> {}
+export class TestSuiteFolderSink extends IdFolderSink<TestSuite> {}
 export class ScriptFolderSink extends IdFolderSink<ScriptEntry> {}
 export class PatchFolderSink extends IdFolderSink<Patch> {}
 
 // ---------- Programs (with nested accounts/) ----------
 
-/** Program file shape on disk: ProgramEntry minus inline accounts. */
-type ProgramFileV2 = Omit<ProgramEntry, 'accounts'>;
+/**
+ * Program file shape on disk: ProgramEntry minus inline accounts.
+ *
+ * Schema evolution: legacy files (single elfBlobHash + source) are auto-upgraded
+ * on read into the multi-version shape with a synthesized `v1` version. Save
+ * always writes the multi-version canonical form.
+ */
+type ProgramFileLegacy = Omit<ProgramEntry, 'accounts' | 'versions' | 'activeVersionId'> &
+  Partial<Pick<ProgramEntry, 'versions' | 'activeVersionId'>>;
+
+/**
+ * Mirror the active version's elf/source onto the top-level fields so older
+ * runtime paths reading `elfBlobHash` see the same bytes the version system
+ * resolves to.
+ */
+function mirrorActiveVersion(p: ProgramEntry): ProgramEntry {
+  const active = p.versions.find((v) => v.id === p.activeVersionId);
+  if (!active) return p;
+  return {
+    ...p,
+    elfBlobHash: active.elfBlobHash,
+    source: active.source,
+    clonedAtSlot: active.source.kind === 'cloned' ? active.source.slot : null,
+  };
+}
+
+/**
+ * Read a possibly-legacy file and return a canonical multi-version
+ * ProgramEntry. If the file already has `versions`, mirror the active one
+ * onto the top-level fields. If it doesn't, synthesize a single `v1` from
+ * the existing elfBlobHash + source.
+ */
+function upgradeProgramFile(
+  raw: ProgramFileLegacy,
+  accounts: AccountEntry[],
+): ProgramEntry {
+  if (Array.isArray(raw.versions) && raw.versions.length > 0) {
+    const activeId =
+      raw.activeVersionId && raw.versions.some((v) => v.id === raw.activeVersionId)
+        ? raw.activeVersionId
+        : raw.versions[0]!.id;
+    return mirrorActiveVersion({
+      ...(raw as unknown as ProgramEntry),
+      versions: raw.versions,
+      activeVersionId: activeId,
+      accounts,
+    });
+  }
+  // Legacy: build a synthetic v1 from the single elfBlobHash + source.
+  const v1: ProgramVersion = {
+    id: randomUUID(),
+    label: 'v1',
+    elfBlobHash: raw.elfBlobHash,
+    source: raw.source,
+    idlId: raw.idlId ?? null,
+    createdAt: Date.now(),
+  };
+  return mirrorActiveVersion({
+    ...(raw as unknown as ProgramEntry),
+    versions: [v1],
+    activeVersionId: v1.id,
+    accounts,
+  });
+}
 
 /**
  * `<dir>/<programId>.json` — program metadata.
@@ -184,9 +251,9 @@ export class ProgramFolderSink {
         const meta = JSON.parse(
           await readFile(join(this.dir, f), 'utf8'),
           reviver,
-        ) as ProgramFileV2;
+        ) as ProgramFileLegacy;
         const accounts = await this.loadAccounts(programId);
-        out.push({ ...meta, accounts });
+        out.push(upgradeProgramFile(meta, accounts));
       } catch {
         /* skip corrupt */
       }
@@ -339,9 +406,12 @@ export class JsonFileSink implements PersistenceSink {
 // ---------- Helpers ----------
 
 async function atomicWrite(path: string, data: string): Promise<void> {
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, data);
-  await rename(tmp, path);
+  // Direct write — no tmp+rename. The tmp-file pattern was polluting the
+  // Files tree (one transient `.tmp` per entity per save × dozens of
+  // entities per persist). Trade off: a crash mid-write can leave a
+  // partially-written file. Acceptable for a dev sandbox where blobs are
+  // content-addressed elsewhere and JSON entities are cheap to recreate.
+  await writeFile(path, data);
 }
 
 function replacer(_key: string, value: unknown): unknown {

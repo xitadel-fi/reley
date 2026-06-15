@@ -17,6 +17,16 @@ export interface AccountEntry {
   source: 'cloned' | 'manual';
 }
 
+export interface ProgramVersion {
+  id: string;
+  label: string;
+  elfBlobHash: string;
+  source: { kind: 'cloned'; slot: string } | { kind: 'localFile'; path: string };
+  idlId: string | null;
+  notes?: string;
+  createdAt: number;
+}
+
 export interface ProgramEntry {
   programId: string;
   label: string;
@@ -26,6 +36,8 @@ export interface ProgramEntry {
   accounts: AccountEntry[];
   upgradeAuthority: string | null;
   clonedAtSlot: string | null;
+  versions: ProgramVersion[];
+  activeVersionId: string;
 }
 
 export interface Project {

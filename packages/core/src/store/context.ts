@@ -8,6 +8,7 @@ import {
   ProjectManifestSink,
   ScriptFolderSink,
   SessionFolderSink,
+  TestSuiteFolderSink,
   TxTemplateFolderSink,
   WorkflowFolderSink,
   type ManifestV2,
@@ -36,6 +37,7 @@ export class CoreContext {
   private readonly sessionSink: SessionFolderSink;
   private readonly templateSink: TxTemplateFolderSink;
   private readonly workflowSink: WorkflowFolderSink;
+  private readonly testSuiteSink: TestSuiteFolderSink;
   private readonly scriptSink: ScriptFolderSink;
   private readonly patchSink: PatchFolderSink;
   private readonly programSink: ProgramFolderSink;
@@ -52,6 +54,7 @@ export class CoreContext {
     this.sessionSink = new SessionFolderSink(join(relayDir, 'sessions'));
     this.templateSink = new TxTemplateFolderSink(join(relayDir, 'tx-templates'));
     this.workflowSink = new WorkflowFolderSink(join(relayDir, 'workflows'));
+    this.testSuiteSink = new TestSuiteFolderSink(join(relayDir, 'test-suites'));
     this.scriptSink = new ScriptFolderSink(join(relayDir, 'scripts'));
     this.patchSink = new PatchFolderSink(join(relayDir, 'patches'));
     this.programSink = new ProgramFolderSink(join(relayDir, 'programs'));
@@ -60,9 +63,10 @@ export class CoreContext {
   async load(): Promise<void> {
     const meta = await this.manifestSink.load();
     if (meta) {
-      const [templates, workflows, scripts, patches, programs] = await Promise.all([
+      const [templates, workflows, testSuites, scripts, patches, programs] = await Promise.all([
         this.templateSink.loadAll(),
         this.workflowSink.loadAll(),
+        this.testSuiteSink.loadAll(),
         this.scriptSink.loadAll(),
         this.patchSink.loadAll(),
         this.programSink.loadAll(),
@@ -80,6 +84,7 @@ export class CoreContext {
         scripts,
         txTemplates: templates,
         workflows,
+        testSuites,
         createdAt: meta.createdAt,
         lastOpenedAt: meta.lastOpenedAt,
         pinned: meta.pinned,
@@ -90,7 +95,40 @@ export class CoreContext {
     this.sessions.loadAll(sessions);
   }
 
+  private inFlight: Promise<void> | null = null;
+  private nextQueued: Promise<void> | null = null;
+
+  /**
+   * Serialize + coalesce saves. Multiple IPC handlers may call `persist()`
+   * concurrently; without serialization their write loops race on shared
+   * tmp filenames and watcher events fire for every entity twice. When a
+   * save is already running, the next arriver enqueues exactly ONE
+   * follow-up — every subsequent caller until that follow-up starts
+   * running piggybacks on the same promise. So a burst of N IPC calls
+   * collapses to at most 2 saves.
+   */
   async save(): Promise<void> {
+    if (this.nextQueued) return this.nextQueued;
+    if (this.inFlight) {
+      this.nextQueued = this.inFlight.catch(() => {}).then(() => {
+        this.nextQueued = null;
+        this.inFlight = this._runSave();
+        return this.inFlight;
+      });
+      return this.nextQueued;
+    }
+    this.inFlight = this._runSave();
+    return this.inFlight;
+  }
+
+  private _runSave(): Promise<void> {
+    const p = this._saveNow().finally(() => {
+      if (this.inFlight === p) this.inFlight = null;
+    });
+    return p;
+  }
+
+  private async _saveNow(): Promise<void> {
     const first = this.projects.exportAll()[0];
     if (first) {
       const meta: ManifestV2 = {
@@ -110,6 +148,7 @@ export class CoreContext {
         this.manifestSink.save(meta),
         this.templateSink.saveAll(first.txTemplates),
         this.workflowSink.saveAll(first.workflows),
+        this.testSuiteSink.saveAll(first.testSuites),
         this.scriptSink.saveAll(first.scripts),
         this.patchSink.saveAll(first.patches),
         this.programSink.saveAll(Object.values(first.programs)),

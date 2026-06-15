@@ -20,12 +20,21 @@ export type WorkflowStepInput =
       computeUnitLimit?: number | null;
       airdropPayerLamports?: string | null;
       payerKeypairId?: string | null;
+      additionalSignerKeypairIds?: string[];
+      programVersionOverrides?: Record<string, string>;
     }
   | { kind: 'airdrop'; id: Uuid; name: string; pubkey: string; lamports: string }
   | { kind: 'warpTime'; id: Uuid; name: string; seconds: number }
   | { kind: 'warpSlot'; id: Uuid; name: string; slot: string }
   | { kind: 'expireBlockhash'; id: Uuid; name: string }
-  | { kind: 'resetSession'; id: Uuid; name: string };
+  | { kind: 'resetSession'; id: Uuid; name: string }
+  | {
+      kind: 'setProgramVersion';
+      id: Uuid;
+      name: string;
+      programId: string;
+      versionId: string | null;
+    };
 
 export interface WorkflowStepResult {
   stepId: Uuid;
@@ -116,10 +125,40 @@ export async function runWorkflow(
           break;
         }
 
+        case 'setProgramVersion': {
+          ctx.sessions.pinProgramVersion(sessionId, step.programId, step.versionId);
+          runtime.invalidate(sessionId);
+          results.push({
+            stepId: step.id,
+            kind: step.kind,
+            name: step.name,
+            success: true,
+            errorMessage: null,
+            durationMs: performance.now() - start,
+          });
+          break;
+        }
+
         case 'tx': {
           if (step.ixs.length === 0) {
             throw new RelayError(ErrorCode.INVALID_INPUT, `tx step "${step.name}" has no ixs`);
           }
+          // Snapshot + apply version pins. Restoration handled by the
+          // try/finally below so leaks can't happen on throws either.
+          const overrides = step.programVersionOverrides ?? {};
+          const previousPins: Record<string, string | null> = {};
+          {
+            const sessionPre = ctx.sessions.get(sessionId);
+            for (const pid of Object.keys(overrides)) {
+              previousPins[pid] = sessionPre.programVersionOverrides?.[pid] ?? null;
+            }
+            for (const [pid, vid] of Object.entries(overrides)) {
+              ctx.sessions.pinProgramVersion(sessionId, pid, vid);
+            }
+            if (Object.keys(overrides).length > 0) runtime.invalidate(sessionId);
+          }
+          try {
+
           let payer: Keypair;
           if (step.payerKeypairId) {
             const secret = await ctx.keypairs.exportSecretKey(step.payerKeypairId);
@@ -142,9 +181,21 @@ export async function runWorkflow(
             ...(step.computeUnitLimit !== undefined &&
               step.computeUnitLimit !== null && { computeUnitLimit: step.computeUnitLimit }),
           });
-          signTransaction(tx, [
+          const signers: Array<{ pubkey: string; secretKey: number[] }> = [
             { pubkey: payer.publicKey.toBase58(), secretKey: Array.from(payer.secretKey) },
-          ]);
+          ];
+          if (step.additionalSignerKeypairIds && step.additionalSignerKeypairIds.length > 0) {
+            const have = new Set(signers.map((s) => s.pubkey));
+            for (const id of step.additionalSignerKeypairIds) {
+              const secret = await ctx.keypairs.exportSecretKey(id);
+              const kp = Keypair.fromSecretKey(secret);
+              const pub = kp.publicKey.toBase58();
+              if (have.has(pub)) continue;
+              have.add(pub);
+              signers.push({ pubkey: pub, secretKey: Array.from(kp.secretKey) });
+            }
+          }
+          signTransaction(tx, signers);
           const txResult = await runtime.sendTransaction(sessionId, tx.serialize());
           const session = ctx.sessions.get(sessionId);
           const trace = parseTrace(txResult.logs);
@@ -184,9 +235,15 @@ export async function runWorkflow(
             },
           });
           if (!txResult.success) {
-            return results; // stop on first failed tx step
+            return results; // stop on first failed tx step (finally restores pins)
           }
           break;
+          } finally {
+            for (const [pid, prev] of Object.entries(previousPins)) {
+              ctx.sessions.pinProgramVersion(sessionId, pid, prev);
+            }
+            if (Object.keys(previousPins).length > 0) runtime.invalidate(sessionId);
+          }
         }
       }
     } catch (err) {

@@ -81,15 +81,22 @@ export function resolveLayout(
   programId: string,
   dataLen: number,
 ): NativeLayout | null {
-  for (const layout of NATIVE_LAYOUTS) {
-    if (!layout.owners.includes(programId)) continue;
-    if (layout.size !== null) {
-      // For Token-2022 with extensions, dataLen > 165 — still match the base layout.
-      if (dataLen < layout.size) continue;
-    }
-    return layout;
+  // Two-pass: prefer exact size match (handles MINT=82 vs ACCOUNT=165 under
+  // the same program owner). Fall back to "at-least" match for Token-2022
+  // base body (account with extensions appended → dataLen > 165).
+  const owned = NATIVE_LAYOUTS.filter((l) => l.owners.includes(programId));
+  for (const layout of owned) {
+    if (layout.size === null) return layout;
+    if (dataLen === layout.size) return layout;
   }
-  return null;
+  // No exact match → fall back to largest layout that still fits.
+  let best: NativeLayout | null = null;
+  for (const layout of owned) {
+    if (layout.size === null) continue;
+    if (dataLen < layout.size) continue;
+    if (!best || layout.size > (best.size ?? 0)) best = layout;
+  }
+  return best;
 }
 
 export function decodeNative(data: Uint8Array, layout: NativeLayout): Record<string, unknown> {

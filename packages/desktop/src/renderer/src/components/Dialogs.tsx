@@ -28,9 +28,24 @@ interface ConfirmOpts {
   danger?: boolean;
 }
 
+interface PickItem {
+  id: string;
+  label: string;
+  hint?: string;
+}
+
+interface PickOpts {
+  title: string;
+  message?: string;
+  items: PickItem[];
+  confirmText?: string;
+  emptyMessage?: string;
+}
+
 interface DialogsApi {
   prompt(opts: PromptOpts): Promise<string | null>;
   confirm(opts: ConfirmOpts): Promise<boolean>;
+  pickFromList(opts: PickOpts): Promise<string | null>;
 }
 
 const Ctx = createContext<DialogsApi | null>(null);
@@ -39,8 +54,11 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
   const [promptState, setPromptState] = useState<PromptOpts | null>(null);
   const [promptValue, setPromptValue] = useState('');
   const [confirmState, setConfirmState] = useState<ConfirmOpts | null>(null);
+  const [pickState, setPickState] = useState<PickOpts | null>(null);
+  const [pickSelected, setPickSelected] = useState<string | null>(null);
   const promptResolve = useRef<((v: string | null) => void) | null>(null);
   const confirmResolve = useRef<((v: boolean) => void) | null>(null);
+  const pickResolve = useRef<((v: string | null) => void) | null>(null);
 
   const prompt = useCallback((opts: PromptOpts): Promise<string | null> => {
     setPromptValue(opts.initial ?? '');
@@ -57,6 +75,14 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
     });
   }, []);
 
+  const pickFromList = useCallback((opts: PickOpts): Promise<string | null> => {
+    setPickSelected(opts.items[0]?.id ?? null);
+    setPickState(opts);
+    return new Promise<string | null>((resolve) => {
+      pickResolve.current = resolve;
+    });
+  }, []);
+
   const closePrompt = (value: string | null): void => {
     promptResolve.current?.(value);
     promptResolve.current = null;
@@ -69,8 +95,15 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
     setConfirmState(null);
   };
 
+  const closePick = (value: string | null): void => {
+    pickResolve.current?.(value);
+    pickResolve.current = null;
+    setPickState(null);
+    setPickSelected(null);
+  };
+
   return (
-    <Ctx.Provider value={{ prompt, confirm }}>
+    <Ctx.Provider value={{ prompt, confirm, pickFromList }}>
       {children}
 
       <Dialog open={!!promptState} onOpenChange={(o) => !o && closePrompt(null)}>
@@ -101,6 +134,76 @@ export function DialogsProvider({ children }: { children: ReactNode }): JSX.Elem
                   onClick={() => closePrompt(promptValue)}
                 >
                   {promptState.confirmText ?? 'OK'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pickState} onOpenChange={(o) => !o && closePick(null)}>
+        <DialogContent size="md">
+          {pickState && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{pickState.title}</DialogTitle>
+                {pickState.message && (
+                  <DialogDescription>{pickState.message}</DialogDescription>
+                )}
+              </DialogHeader>
+              {pickState.items.length === 0 ? (
+                <div className="text-xs text-text-muted py-2">
+                  {pickState.emptyMessage ?? 'Nothing to pick.'}
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-1 max-h-[360px] overflow-auto -mx-1 px-1">
+                  {pickState.items.map((it) => {
+                    const selected = pickSelected === it.id;
+                    return (
+                      <li key={it.id}>
+                        <button
+                          type="button"
+                          onClick={() => setPickSelected(it.id)}
+                          onDoubleClick={() => closePick(it.id)}
+                          className={[
+                            'w-full text-left rounded-md border px-3 py-2 text-xs transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+                            selected
+                              ? 'border-accent bg-accent/15 text-text'
+                              : 'border-border bg-surface-0 hover:bg-surface-1 text-text-muted hover:text-text',
+                          ].join(' ')}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={[
+                                'inline-block w-2 h-2 rounded-full shrink-0',
+                                selected ? 'bg-accent' : 'bg-text-subtle',
+                              ].join(' ')}
+                              aria-hidden
+                            />
+                            <span className="flex-1 min-w-0 truncate font-medium">{it.label}</span>
+                          </div>
+                          {it.hint && (
+                            <div className="text-2xs text-text-subtle font-mono mt-0.5 truncate pl-4">
+                              {it.hint}
+                            </div>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => closePick(null)}>
+                  <X size={12} aria-hidden /> Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!pickSelected || pickState.items.length === 0}
+                  onClick={() => closePick(pickSelected)}
+                >
+                  {pickState.confirmText ?? 'Select'}
                 </Button>
               </DialogFooter>
             </>
@@ -141,6 +244,7 @@ export function useDialogs(): DialogsApi {
     return {
       prompt: async () => null,
       confirm: async () => false,
+      pickFromList: async () => null,
     };
   }
   return c;

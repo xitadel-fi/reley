@@ -36,6 +36,9 @@ import { Badge, Button, IconButton, Input, Kbd, Pubkey, useTheme } from './ui';
 import { AccountInspector } from './features/AccountInspector';
 import { AddAccountForm } from './features/AddAccountForm';
 import { AddProgramForm } from './features/AddProgramForm';
+import { AddProgramVersionForm } from './features/AddProgramVersionForm';
+import { IdlDiffPanel } from './features/IdlDiffPanel';
+import { VersionCompareRunPanel } from './features/VersionCompareRunPanel';
 import { AttachIdlForm } from './features/AttachIdlForm';
 import { InspectorPane, type InspectorTab } from './features/InspectorPane';
 import { KeypairsPanel } from './features/KeypairsPanel';
@@ -46,8 +49,10 @@ import { SnapshotsPanel } from './features/SnapshotsPanel';
 import { TxBuilderPanel } from './features/TxBuilderPanel';
 import { FileEditor } from './features/FileEditor';
 import { FilesTree } from './features/FilesTree';
+import { SettingsPanel } from './features/SettingsPanel';
 import { TxHistoryPanel } from './features/TxHistoryPanel';
 import { WorkflowsPanel } from './features/WorkflowsPanel';
+import { TestsPanel } from './features/TestsPanel';
 import type { Project, ProgramEntry, ProjectMeta, SessionMeta } from './types';
 
 const SIDEBAR_MIN = 200;
@@ -68,7 +73,7 @@ function useSidebarWidth(): [number, (n: number) => void] {
 }
 
 type NavView = 'workspace' | 'replay' | 'snapshots' | 'keypairs';
-type WorkspaceTab = 'builder' | 'workflows' | 'history' | 'patches';
+type WorkspaceTab = 'builder' | 'workflows' | 'tests' | 'history' | 'patches';
 type SidebarMode = 'project' | 'files';
 
 interface PromptState {
@@ -100,6 +105,9 @@ export function App(): JSX.Element {
     | 'attachIdl'
     | 'patchAccount'
     | 'inspectAccount'
+    | 'addProgramVersion'
+    | 'diffIdl'
+    | 'compareVersionsRun'
     | null
   >(null);
   const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
@@ -118,6 +126,13 @@ export function App(): JSX.Element {
     setSidebarMode(m);
     if (typeof localStorage !== 'undefined') localStorage.setItem('relay:sidebar-mode', m);
   }, []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    return api.onMenu((cmd) => {
+      if (cmd === 'open-settings') setSettingsOpen(true);
+    });
+  }, []);
+
   const [openedFiles, setOpenedFiles] = useState<string[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [filesRefreshKey, setFilesRefreshKey] = useState(0);
@@ -150,6 +165,17 @@ export function App(): JSX.Element {
     });
   }, []);
   const [idlAttached, setIdlAttached] = useState<Set<string>>(new Set());
+  const [sessionPins, setSessionPins] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!activeSessionId) {
+      setSessionPins({});
+      return;
+    }
+    void api
+      .call<Record<string, string>>('session.getVersionPins', { sessionId: activeSessionId })
+      .then(setSessionPins)
+      .catch(() => setSessionPins({}));
+  }, [activeSessionId, activeProject?.id]);
   const [hiddenPrograms, setHiddenPrograms] = useState<Set<string>>(new Set());
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
   const [programsSectionOpen, setProgramsSectionOpen] = useState<boolean>(() => {
@@ -327,6 +353,24 @@ export function App(): JSX.Element {
     void reloadProjects();
   }, [reloadProjects]);
 
+  // Background auto-reload: main process watches <projectRoot>/.relay.json
+  // and <projectRoot>/.relay/. On any external change, ask the worker to
+  // re-read from disk, then refresh the renderer cache.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    return api.onFilesChanged(() => {
+      void (async () => {
+        try {
+          await api.call('project.reload');
+        } catch {
+          /* worker may be mid-spawn; next event retries */
+        }
+        if (activeProjectId) void reloadProject(activeProjectId);
+        setFilesRefreshKey((k) => k + 1);
+      })();
+    });
+  }, [activeProjectId, reloadProject]);
+
   useEffect(() => {
     if (activeProjectId) void reloadProject(activeProjectId);
     else setActiveProject(null);
@@ -382,6 +426,7 @@ export function App(): JSX.Element {
     const tabs: Array<{ id: WorkspaceTab; label: string }> = [
       { id: 'builder', label: 'Tx Builder' },
       { id: 'workflows', label: 'Workflows' },
+      { id: 'tests', label: 'Tests' },
       { id: 'history', label: 'Tx History' },
       { id: 'patches', label: 'Patches' },
     ];
@@ -501,7 +546,84 @@ export function App(): JSX.Element {
 
   const programMenu = (programId: string): MenuItem[] => {
     const prog = activeProject?.programs[programId];
+    const versions = prog?.versions ?? [];
+    const activeVersionId = prog?.activeVersionId;
     return [
+    ...(versions.length > 1
+      ? (versions.map((v) => ({
+          label: `${v.id === activeVersionId ? '● ' : '  '}Use version: ${v.label}`,
+          onSelect: () =>
+            safeCall(async () => {
+              if (!activeProjectId) return;
+              await api.call('program.versionSetActive', {
+                projectId: activeProjectId,
+                programId,
+                versionId: v.id,
+              });
+              await reloadProject(activeProjectId);
+            }, `switched to ${v.label}`),
+        })) as MenuItem[])
+      : []),
+    {
+      label: 'Add version…',
+      onSelect: () => {
+        setPendingProgramId(programId);
+        setModal('addProgramVersion');
+      },
+    },
+    {
+      label: 'Diff IDLs…',
+      onSelect: () => setModal('diffIdl'),
+    },
+    ...(versions.length > 1
+      ? ([
+          {
+            label: 'Compare run across versions…',
+            onSelect: () => {
+              setPendingProgramId(programId);
+              setModal('compareVersionsRun');
+            },
+          },
+        ] as MenuItem[])
+      : []),
+    ...(versions.length > 1 && activeSessionId
+      ? (versions.map((v) => ({
+          label: `Pin "${v.label}" for active session`,
+          onSelect: () =>
+            safeCall(async () => {
+              await api.call('program.versionPinForSession', {
+                sessionId: activeSessionId,
+                programId,
+                versionId: v.id,
+              });
+              const pins = await api.call<Record<string, string>>('session.getVersionPins', {
+                sessionId: activeSessionId,
+              });
+              setSessionPins(pins);
+              if (activeProjectId) await reloadProject(activeProjectId);
+            }, `pinned ${v.label} for session`),
+        })) as MenuItem[])
+      : []),
+    ...(versions.length > 1 && activeSessionId
+      ? ([
+          {
+            label: 'Clear session pin',
+            onSelect: () =>
+              safeCall(async () => {
+                await api.call('program.versionPinForSession', {
+                  sessionId: activeSessionId,
+                  programId,
+                  versionId: null,
+                });
+                const pins = await api.call<Record<string, string>>('session.getVersionPins', {
+                  sessionId: activeSessionId,
+                });
+                setSessionPins(pins);
+                if (activeProjectId) await reloadProject(activeProjectId);
+              }, 'session pin cleared'),
+          },
+        ] as MenuItem[])
+      : []),
     {
       label: 'Rename program…',
       onSelect: () =>
@@ -1002,7 +1124,18 @@ export function App(): JSX.Element {
                       onContextMenu={(e) => ctx.open(e, sessionMenu(s))}
                     >
                       <span className="session-dot" />
-                      <span className="session-name">{s.name}</span>
+                      <span className="session-name">
+                        <InlineRename
+                          value={s.name}
+                          onCommit={async (next) => {
+                            await safeCall(
+                              () => api.call('session.rename', { id: s.id, name: next }),
+                              'session renamed',
+                            );
+                            if (activeProjectId) await reloadProject(activeProjectId);
+                          }}
+                        />
+                      </span>
                       <span className="font-mono text-2xs text-text-subtle">
                         {s.accountCount}/{s.mutationCount}
                       </span>
@@ -1110,14 +1243,51 @@ export function App(): JSX.Element {
                               )}
                             </span>
                             <span className="tree-program-label">
-                              {prog.label.length > 26
-                                ? `${prog.label.slice(0, 26)}…`
-                                : prog.label}
+                              <InlineRename
+                                value={prog.label}
+                                onCommit={async (next) => {
+                                  if (!activeProjectId) return;
+                                  await safeCall(
+                                    () =>
+                                      api.call('program.setLabel', {
+                                        projectId: activeProjectId,
+                                        programId: prog.programId,
+                                        label: next,
+                                      }),
+                                    'program renamed',
+                                  );
+                                  await reloadProject(activeProjectId);
+                                }}
+                              />
                             </span>
                             <span className="tree-program-badges">
                               {hasIdl && (
                                 <Badge size="sm" variant="accent">
                                   IDL
+                                </Badge>
+                              )}
+                              {prog.versions && prog.versions.length > 0 && (
+                                <Badge
+                                  size="sm"
+                                  variant={prog.versions.length > 1 ? 'warning' : 'default'}
+                                  title={
+                                    prog.versions.length > 1
+                                      ? `${prog.versions.length} versions — right-click to switch`
+                                      : 'Active version'
+                                  }
+                                >
+                                  {prog.versions.find((v) => v.id === prog.activeVersionId)
+                                    ?.label ?? 'v1'}
+                                  {prog.versions.length > 1 && ` · ${prog.versions.length}`}
+                                </Badge>
+                              )}
+                              {sessionPins[prog.programId] && (
+                                <Badge
+                                  size="sm"
+                                  variant="accent"
+                                  title="Session pin override active"
+                                >
+                                  pin: {prog.versions.find((v) => v.id === sessionPins[prog.programId])?.label ?? '?'}
                                 </Badge>
                               )}
                               {sourceKind && (
@@ -1292,6 +1462,12 @@ export function App(): JSX.Element {
                       Workflows
                     </button>
                     <button
+                      className={`sub-tab${workspaceTab === 'tests' ? ' active' : ''}`}
+                      onClick={() => setWorkspaceTab('tests')}
+                    >
+                      Tests
+                    </button>
+                    <button
                       className={`sub-tab${workspaceTab === 'history' ? ' active' : ''}`}
                       onClick={() => setWorkspaceTab('history')}
                     >
@@ -1323,7 +1499,18 @@ export function App(): JSX.Element {
                       <TxBuilderPanel project={activeProject} activeSessionId={activeSessionId} />
                     )}
                     {workspaceTab === 'workflows' && (
-                      <WorkflowsPanel project={activeProject} activeSessionId={activeSessionId} />
+                      <WorkflowsPanel
+                        project={activeProject}
+                        activeSessionId={activeSessionId}
+                        onSelectSession={setActiveSessionId}
+                      />
+                    )}
+                    {workspaceTab === 'tests' && (
+                      <TestsPanel
+                        project={activeProject}
+                        activeSessionId={activeSessionId}
+                        onSelectSession={setActiveSessionId}
+                      />
                     )}
                     {workspaceTab === 'history' && (
                       <TxHistoryPanel activeSessionId={activeSessionId} />
@@ -1417,6 +1604,33 @@ export function App(): JSX.Element {
               setModal(null);
               await reloadProject(activeProjectId);
             }}
+          />
+        </Modal>
+      )}
+      {modal === 'addProgramVersion' && activeProjectId && pendingProgramId && (
+        <Modal onClose={() => setModal(null)}>
+          <AddProgramVersionForm
+            projectId={activeProjectId}
+            programId={pendingProgramId}
+            onDone={async () => {
+              setModal(null);
+              await reloadProject(activeProjectId);
+            }}
+          />
+        </Modal>
+      )}
+      {modal === 'diffIdl' && (
+        <Modal onClose={() => setModal(null)}>
+          <IdlDiffPanel onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal === 'compareVersionsRun' && activeProject && (
+        <Modal onClose={() => setModal(null)}>
+          <VersionCompareRunPanel
+            project={activeProject}
+            activeSessionId={activeSessionId}
+            {...(pendingProgramId && { initialProgramId: pendingProgramId })}
+            onClose={() => setModal(null)}
           />
         </Modal>
       )}
@@ -1528,6 +1742,44 @@ export function App(): JSX.Element {
           <Search size={11} aria-hidden /> <Kbd>⌘K</Kbd>
         </button>
       </footer>
+
+      {settingsOpen && (
+        <SettingsOverlay onClose={() => setSettingsOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+function SettingsOverlay({ onClose }: { onClose: () => void }): JSX.Element {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-40 flex flex-col bg-bg"
+      style={{ top: 40 /* header height */ }}
+    >
+      <div className="flex items-center justify-between px-4 h-9 border-b border-border bg-surface-0">
+        <div className="text-xs uppercase tracking-widest text-text-subtle font-semibold">
+          Settings
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close settings"
+          title="Close (Esc)"
+          className="inline-flex items-center justify-center w-6 h-6 rounded text-text-muted hover:text-text hover:bg-surface-1 transition-colors"
+        >
+          <X size={13} aria-hidden />
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <SettingsPanel />
+      </div>
     </div>
   );
 }
@@ -1718,6 +1970,70 @@ function ProgramsListView({
         );
       })}
     </div>
+  );
+}
+
+function InlineRename({
+  value,
+  onCommit,
+  className,
+}: {
+  value: string;
+  onCommit: (next: string) => void | Promise<void>;
+  className?: string;
+}): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+  if (!editing) {
+    return (
+      <span
+        className={className}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditing(true);
+        }}
+        title="Double-click to rename"
+      >
+        {value}
+      </span>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const next = draft.trim();
+          setEditing(false);
+          if (next && next !== value) void onCommit(next);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setEditing(false);
+          setDraft(value);
+        }
+      }}
+      onBlur={() => {
+        const next = draft.trim();
+        setEditing(false);
+        if (next && next !== value) void onCommit(next);
+      }}
+      style={{
+        font: 'inherit',
+        color: 'inherit',
+        background: 'rgb(var(--color-bg))',
+        border: '1px solid rgb(var(--color-border-strong))',
+        borderRadius: 3,
+        padding: '0 4px',
+        minWidth: 80,
+      }}
+    />
   );
 }
 

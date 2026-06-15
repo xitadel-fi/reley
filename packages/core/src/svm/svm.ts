@@ -6,6 +6,7 @@ import {
   type VersionedTransaction,
 } from '@solana/web3.js';
 import {
+  Clock,
   FailedTransactionMetadata,
   LiteSVM,
   SimulatedTransactionInfo,
@@ -69,6 +70,22 @@ export class SvmInstance {
     this.svm.warpToSlot(slot);
   }
 
+  /**
+   * Set the SVM clock. Use this to drive `Clock::unix_timestamp` forward —
+   * LiteSVM's `warpToSlot` only moves the slot field, not the timestamp.
+   */
+  setClock(c: {
+    slot: bigint;
+    epochStartTimestamp: bigint;
+    epoch: bigint;
+    leaderScheduleEpoch: bigint;
+    unixTimestamp: bigint;
+  }): void {
+    this.svm.setClock(
+      new Clock(c.slot, c.epochStartTimestamp, c.epoch, c.leaderScheduleEpoch, c.unixTimestamp),
+    );
+  }
+
   expireBlockhash(): void {
     this.svm.expireBlockhash();
   }
@@ -87,6 +104,24 @@ export class SvmInstance {
       epochStartTimestamp: c.epochStartTimestamp.toString(),
       leaderScheduleEpoch: c.leaderScheduleEpoch.toString(),
       unixTimestamp: c.unixTimestamp.toString(),
+    };
+  }
+
+  /** Same as getClock but returns raw bigints (no stringify). */
+  getClockBig(): {
+    slot: bigint;
+    epoch: bigint;
+    epochStartTimestamp: bigint;
+    leaderScheduleEpoch: bigint;
+    unixTimestamp: bigint;
+  } {
+    const c = this.svm.getClock();
+    return {
+      slot: c.slot,
+      epoch: c.epoch,
+      epochStartTimestamp: c.epochStartTimestamp,
+      leaderScheduleEpoch: c.leaderScheduleEpoch,
+      unixTimestamp: c.unixTimestamp,
     };
   }
 

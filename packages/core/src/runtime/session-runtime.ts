@@ -29,7 +29,10 @@ export class SessionRuntime {
     const session = this.ctx.sessions.get(sessionId);
     const project = this.ctx.projects.get(session.projectId);
 
-    const fingerprint = `${JSON.stringify(project.patches)}|${JSON.stringify(session.sessionPatches)}`;
+    const fingerprint = `${JSON.stringify(project.patches)}|${JSON.stringify(session.sessionPatches)}|${JSON.stringify(session.programVersionOverrides ?? {})}|${Object.values(project.programs)
+      .map((p) => `${p.programId}:${p.activeVersionId}`)
+      .sort()
+      .join(',')}`;
     let entry = this.entries.get(sessionId);
     if (entry?.hydrated && entry.patchVersion === fingerprint) {
       return entry.svm;
@@ -49,12 +52,18 @@ export class SessionRuntime {
       entry.knownAccounts.clear();
     }
 
-    // Load programs
+    // Load programs. Session may pin a non-default version for some programs;
+    // otherwise we use the project-level active version's ELF.
+    const sessionPins = session.programVersionOverrides ?? {};
     for (const prog of Object.values(project.programs)) {
       if (isBuiltinProgram(prog.programId)) continue;
-      const elf = await this.ctx.blobs.get(prog.elfBlobHash);
+      const pinnedVersionId = sessionPins[prog.programId];
+      const pinned = pinnedVersionId
+        ? prog.versions.find((v) => v.id === pinnedVersionId)
+        : undefined;
+      const blobHash = pinned?.elfBlobHash ?? prog.elfBlobHash;
+      const elf = await this.ctx.blobs.get(blobHash);
       if (!elf || elf.length === 0) {
-        // empty ELF = synthetic builtin entry, nothing to load
         if (!elf) {
           throw new RelayError(
             ErrorCode.PROGRAM_LOAD_FAILURE,
@@ -67,13 +76,13 @@ export class SessionRuntime {
     }
 
     // Preload IDLs for every program owner referenced — patch engine resolveIdl is sync.
+    // Honors per-session version pin (programVersionOverrides) and falls back
+    // to the project's active version's IDL, then the program-default IDL.
     const idlCache = new Map<string, import('@coral-xyz/anchor').Idl | null>();
-    const ownerSet = new Set<string>();
     for (const prog of Object.values(project.programs)) {
-      ownerSet.add(prog.programId);
-    }
-    for (const owner of ownerSet) {
-      idlCache.set(owner, await this.ctx.idls.get(owner));
+      const pinnedVid = sessionPins[prog.programId];
+      const effectiveVid = pinnedVid ?? prog.activeVersionId;
+      idlCache.set(prog.programId, await this.ctx.idls.get(prog.programId, effectiveVid));
     }
     const resolveIdl = (programId: string) => idlCache.get(programId) ?? null;
 
@@ -101,6 +110,27 @@ export class SessionRuntime {
         });
         entry.svm.setAccount(new PublicKey(patched.pubkey), this.toAccountInfo(patched));
         entry.knownAccounts.add(patched.pubkey);
+      }
+    }
+
+    // Seed the SVM clock with real wallclock when starting from a fresh
+    // sandbox. LiteSVM defaults `Clock::unix_timestamp = 0`, so any cloned
+    // account whose `expiry` / `start` / `lockup_until` field holds a real
+    // unix timestamp would never compare correctly until the user warped
+    // ~55 years forward. We only seed when the user hasn't already warped
+    // (currentSlot == 0 AND svm clock ts == 0) so warps + snapshots remain
+    // authoritative.
+    {
+      const cur = entry.svm.getClockBig();
+      if (session.currentSlot === 0n && cur.unixTimestamp === 0n) {
+        const nowSec = BigInt(Math.floor(Date.now() / 1000));
+        entry.svm.setClock({
+          slot: cur.slot,
+          epochStartTimestamp: cur.epochStartTimestamp === 0n ? nowSec : cur.epochStartTimestamp,
+          epoch: cur.epoch,
+          leaderScheduleEpoch: cur.leaderScheduleEpoch,
+          unixTimestamp: nowSec,
+        });
       }
     }
 
@@ -141,15 +171,23 @@ export class SessionRuntime {
 
   async warpToSlot(sessionId: string, slot: bigint): Promise<void> {
     const svm = await this.ensureHydrated(sessionId);
-    svm.warpToSlot(slot);
     const session = this.ctx.sessions.get(sessionId);
+    const prevClock = svm.getClockBig();
+    // LiteSVM.warpToSlot only moves the `slot` field. Bump unixTimestamp
+    // proportionally so on-chain `Clock::unix_timestamp` checks (token
+    // vesting cliffs, prediction-market expiries, etc.) advance with us.
+    const slotDelta = slot - prevClock.slot;
+    const tsDelta = (slotDelta * 4n) / 10n; // ~0.4 s per slot
+    svm.setClock({
+      slot,
+      epochStartTimestamp: prevClock.epochStartTimestamp,
+      epoch: prevClock.epoch,
+      leaderScheduleEpoch: prevClock.leaderScheduleEpoch,
+      unixTimestamp: prevClock.unixTimestamp + tsDelta,
+    });
     session.currentSlot = slot;
   }
 
-  /**
-   * Advance the SVM clock by approximating Solana's 400 ms slot time.
-   * 1 slot ≈ 0.4 s; this is approximate but matches user intent for "time fly".
-   */
   async expireBlockhash(sessionId: string): Promise<void> {
     const svm = await this.ensureHydrated(sessionId);
     svm.expireBlockhash();
@@ -169,9 +207,17 @@ export class SessionRuntime {
   async warpByTime(sessionId: string, seconds: number): Promise<{ newSlot: bigint }> {
     const svm = await this.ensureHydrated(sessionId);
     const session = this.ctx.sessions.get(sessionId);
-    const advance = BigInt(Math.max(1, Math.round(seconds / 0.4)));
-    const newSlot = session.currentSlot + advance;
-    svm.warpToSlot(newSlot);
+    const prevClock = svm.getClockBig();
+    const slotAdvance = BigInt(Math.max(1, Math.round(seconds / 0.4)));
+    const newSlot = prevClock.slot + slotAdvance;
+    const newTs = prevClock.unixTimestamp + BigInt(Math.trunc(seconds));
+    svm.setClock({
+      slot: newSlot,
+      epochStartTimestamp: prevClock.epochStartTimestamp,
+      epoch: prevClock.epoch,
+      leaderScheduleEpoch: prevClock.leaderScheduleEpoch,
+      unixTimestamp: newTs,
+    });
     session.currentSlot = newSlot;
     return { newSlot };
   }

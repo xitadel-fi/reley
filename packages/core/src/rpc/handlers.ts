@@ -3,6 +3,7 @@ import { ErrorCode, IpcMethod, type NetworkId, type PatchScope, RelayError } fro
 import { PublicKey } from '@solana/web3.js';
 import { Cloner } from '../cloner/cloner.js';
 import { AnchorCoder, serializeDecoded } from '../patcher/anchor-coder.js';
+import { diffIdl } from '../patcher/idl-diff.js';
 import { decodeNative, resolveLayout } from '../patcher/native-layouts.js';
 import {
   decodeNativeIx,
@@ -21,6 +22,8 @@ import {
   signTransaction,
 } from '../runtime/tx-builder.js';
 import { runWorkflow, type WorkflowStepInput } from '../runtime/workflow-runner.js';
+import { runTestSuite } from '../runtime/test-runner.js';
+import type { TestCase, TestSuite } from '@relay/shared';
 import {
   applySnapshot,
   captureFromSession,
@@ -81,6 +84,14 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       ctx.projects.delete(id);
       await persist();
       return { ok: true };
+    },
+
+    // Re-read the project state from disk. Used after external edits
+    // (Files mode save, .relay/ folder changes detected by the watcher).
+    [IpcMethod.ProjectReload]: async () => {
+      await ctx.load();
+      const first = ctx.projects.exportAll()[0];
+      return first ?? null;
     },
 
     [IpcMethod.SessionCreate]: async (p) => {
@@ -163,6 +174,12 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     [IpcMethod.SessionGetClock]: async (p) => {
       const { sessionId } = p as { sessionId: string };
       return runtime.getClock(sessionId);
+    },
+
+    [IpcMethod.SessionGetVersionPins]: async (p) => {
+      const { sessionId } = p as { sessionId: string };
+      const s = ctx.sessions.get(sessionId);
+      return s.programVersionOverrides ?? {};
     },
 
     [IpcMethod.SessionReset]: async (p) => {
@@ -303,23 +320,34 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         const coder = new BorshInstructionCoder(idl);
         const decoded = coder.decode(data);
         if (decoded) {
+          const idlIx = (idl.instructions ?? []).find((ix) => ix.name === decoded.name);
+          const accountNames: string[] = idlIx
+            ? (idlIx.accounts ?? []).map((acc) => {
+                const a = acc as { name: string };
+                return a.name;
+              })
+            : [];
           return {
             source: 'anchor' as const,
             name: decoded.name,
             args: serializeDecoded(decoded.data) as Record<string, unknown>,
+            accountNames,
           };
         }
       }
       // Fall back to native registry
       const nativeDecoded = decodeNativeIx(programId, new Uint8Array(data));
       if (nativeDecoded) {
+        const accountNames =
+          (nativeDecoded as { accountNames?: string[] }).accountNames ?? [];
         return {
           source: 'native' as const,
           name: nativeDecoded.name,
           args: nativeDecoded.args,
+          accountNames,
         };
       }
-      return { source: 'none' as const, name: null, args: null };
+      return { source: 'none' as const, name: null, args: null, accountNames: [] };
     },
 
     [IpcMethod.TxEncodeIx]: async (p) => {
@@ -365,6 +393,116 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         label: string;
       };
       ctx.projects.setProgramLabel(projectId, programId, label);
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.ProgramVersionList]: async (p) => {
+      const { projectId, programId } = p as { projectId: string; programId: string };
+      const project = ctx.projects.get(projectId);
+      const prog = project.programs[programId];
+      if (!prog) throw new Error(`program not in project: ${programId}`);
+      return { versions: prog.versions, activeVersionId: prog.activeVersionId };
+    },
+
+    [IpcMethod.ProgramVersionAdd]: async (p) => {
+      const params = p as {
+        projectId: string;
+        programId: string;
+        label: string;
+        idlId?: string | null;
+        notes?: string;
+        // Exactly one of these source kinds:
+        fromRpc?: { rpcUrl?: string; slot?: string };
+        fromFile?: { path: string };
+        fromBlob?: { hash: string };
+      };
+      const project = ctx.projects.get(params.projectId);
+
+      let blobHash: string;
+      let source: { kind: 'cloned'; slot: bigint } | { kind: 'localFile'; path: string };
+
+      if (params.fromRpc) {
+        const rpcUrl = params.fromRpc.rpcUrl ?? env.resolveRpcUrl(project.rpcEndpointId);
+        const cloner = new Cloner(rpcUrl, { network: project.network });
+        const cloned = await cloner.cloneProgram(
+          new PublicKey(params.programId),
+          params.fromRpc.slot ? BigInt(params.fromRpc.slot) : undefined,
+        );
+        blobHash = await ctx.blobs.put(cloned.elf);
+        source = { kind: 'cloned', slot: cloned.slot };
+      } else if (params.fromFile) {
+        const fs = await import('node:fs/promises');
+        const bytes = await fs.readFile(params.fromFile.path);
+        blobHash = await ctx.blobs.put(new Uint8Array(bytes));
+        source = { kind: 'localFile', path: params.fromFile.path };
+      } else if (params.fromBlob) {
+        if (!(await ctx.blobs.has(params.fromBlob.hash))) {
+          throw new Error(`blob not found: ${params.fromBlob.hash}`);
+        }
+        blobHash = params.fromBlob.hash;
+        source = { kind: 'localFile', path: `(blob:${params.fromBlob.hash.slice(0, 12)}…)` };
+      } else {
+        throw new Error('program.versionAdd requires fromRpc, fromFile, or fromBlob');
+      }
+
+      const version = ctx.projects.addProgramVersion(params.projectId, params.programId, {
+        label: params.label,
+        elfBlobHash: blobHash,
+        source,
+        ...(params.idlId !== undefined && { idlId: params.idlId }),
+        ...(params.notes !== undefined && { notes: params.notes }),
+      });
+      await persist();
+      return version;
+    },
+
+    [IpcMethod.ProgramVersionRemove]: async (p) => {
+      const { projectId, programId, versionId } = p as {
+        projectId: string;
+        programId: string;
+        versionId: string;
+      };
+      ctx.projects.removeProgramVersion(projectId, programId, versionId);
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.ProgramVersionSetActive]: async (p) => {
+      const { projectId, programId, versionId } = p as {
+        projectId: string;
+        programId: string;
+        versionId: string;
+      };
+      ctx.projects.setActiveProgramVersion(projectId, programId, versionId);
+      // Active ELF for the program changed — drop cached SVMs so the next op
+      // re-binds the new bytes.
+      const project = ctx.projects.get(projectId);
+      for (const sid of project.sessionIds) runtime.invalidate(sid);
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.ProgramVersionSetLabel]: async (p) => {
+      const { projectId, programId, versionId, label } = p as {
+        projectId: string;
+        programId: string;
+        versionId: string;
+        label: string;
+      };
+      ctx.projects.setProgramVersionLabel(projectId, programId, versionId, label);
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.ProgramVersionPinForSession]: async (p) => {
+      const { sessionId, programId, versionId } = p as {
+        sessionId: string;
+        programId: string;
+        versionId: string | null;
+      };
+      ctx.sessions.pinProgramVersion(sessionId, programId, versionId);
+      runtime.invalidate(sessionId);
       await persist();
       return { ok: true };
     },
@@ -543,21 +681,46 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     },
 
     [IpcMethod.IdlAttach]: async (p) => {
-      const { programId, idl } = p as { programId: string; idl: Idl };
-      const entry = await ctx.idls.attach(programId, idl);
-      return entry;
+      const { programId, idl, versionId } = p as {
+        programId: string;
+        idl: Idl;
+        versionId?: string | null;
+      };
+      return ctx.idls.attach(programId, idl, 'manual', versionId ?? null);
     },
 
     [IpcMethod.IdlDetach]: async (p) => {
-      const { programId } = p as { programId: string };
-      await ctx.idls.detach(programId);
+      const { programId, versionId } = p as { programId: string; versionId?: string | null };
+      await ctx.idls.detach(programId, versionId ?? null);
       return { ok: true };
     },
 
     [IpcMethod.IdlList]: async () => ctx.idls.list(),
 
+    [IpcMethod.IdlDiff]: async (p) => {
+      const { left, right } = p as { left: import('@coral-xyz/anchor').Idl; right: import('@coral-xyz/anchor').Idl };
+      return diffIdl(left, right);
+    },
+
+    [IpcMethod.IdlDiffPrograms]: async (p) => {
+      const { leftProgramId, rightProgramId } = p as {
+        leftProgramId: string;
+        rightProgramId: string;
+      };
+      const left = await ctx.idls.get(leftProgramId);
+      const right = await ctx.idls.get(rightProgramId);
+      if (!left) throw new Error(`no IDL attached for ${leftProgramId}`);
+      if (!right) throw new Error(`no IDL attached for ${rightProgramId}`);
+      return diffIdl(left, right);
+    },
+
     [IpcMethod.AccountDecode]: async (p) => {
-      const { projectId, address } = p as { projectId: string; address: string };
+      const { projectId, address, sessionId, versionId } = p as {
+        projectId: string;
+        address: string;
+        sessionId?: string;
+        versionId?: string;
+      };
       const project = ctx.projects.get(projectId);
       // Locate the AccountEntry + owning program
       let entryProgramId: string | null = null;
@@ -584,8 +747,21 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         );
       }
       const rawBase64 = Buffer.from(data).toString('base64');
-      // Determine owner — try owning program first, then any attached IDL
-      const idlPrimary = await ctx.idls.get(entryProgramId);
+      // Resolve which program version's IDL applies:
+      //   explicit `versionId` > session pin override > project active version
+      let resolvedVersionId: string | null = versionId ?? null;
+      if (!resolvedVersionId && sessionId) {
+        try {
+          const session = ctx.sessions.get(sessionId);
+          resolvedVersionId = session.programVersionOverrides?.[entryProgramId] ?? null;
+        } catch {
+          /* missing session — ignore */
+        }
+      }
+      if (!resolvedVersionId) {
+        resolvedVersionId = project.programs[entryProgramId]?.activeVersionId ?? null;
+      }
+      const idlPrimary = await ctx.idls.get(entryProgramId, resolvedVersionId);
       if (idlPrimary) {
         const coder = new AnchorCoder(idlPrimary);
         const decoded = coder.decodeAny(Buffer.from(data));
@@ -666,6 +842,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           computeUnitPrice?: number;
           airdropPayer?: bigint | string | number;
           payerKeypairId?: string | null;
+          additionalSignerKeypairIds?: string[];
         };
       };
       const session = ctx.sessions.get(params.sessionId);
@@ -695,6 +872,20 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
             payer: kp.publicKey.toBase58(),
             signers: [{ pubkey: kp.publicKey.toBase58(), secretKey: Array.from(kp.secretKey) }],
           };
+        }
+        if (b.additionalSignerKeypairIds && b.additionalSignerKeypairIds.length > 0) {
+          const { Keypair } = await import('@solana/web3.js');
+          const have = new Set(b.signers.map((s) => s.pubkey));
+          const extras: SignerInput[] = [];
+          for (const id of b.additionalSignerKeypairIds) {
+            const secret = await ctx.keypairs.exportSecretKey(id);
+            const kp = Keypair.fromSecretKey(secret);
+            const pub = kp.publicKey.toBase58();
+            if (have.has(pub)) continue;
+            have.add(pub);
+            extras.push({ pubkey: pub, secretKey: Array.from(kp.secretKey) });
+          }
+          b = { ...b, signers: [...b.signers, ...extras] };
         }
         if (b.airdropPayer !== undefined) {
           const lamports = BigInt(b.airdropPayer.toString());
@@ -881,6 +1072,84 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
     },
 
+    [IpcMethod.TestSuiteSave]: async (p) => {
+      const params = p as {
+        projectId: string;
+        id?: string;
+        name: string;
+        description?: string;
+        cases: TestCase[];
+      };
+      const project = ctx.projects.get(params.projectId);
+      const now = Date.now();
+      const existing = params.id
+        ? project.testSuites.find((s) => s.id === params.id)
+        : undefined;
+      if (existing) {
+        existing.name = params.name;
+        existing.description = params.description ?? '';
+        existing.cases = params.cases;
+        existing.updatedAt = now;
+        await persist();
+        return existing;
+      }
+      const suite: TestSuite = {
+        id: crypto.randomUUID(),
+        name: params.name,
+        description: params.description ?? '',
+        cases: params.cases,
+        createdAt: now,
+        updatedAt: now,
+      };
+      project.testSuites.push(suite);
+      await persist();
+      return suite;
+    },
+
+    [IpcMethod.TestSuiteList]: async (p) => {
+      const { projectId } = p as { projectId: string };
+      return ctx.projects.get(projectId).testSuites;
+    },
+
+    [IpcMethod.TestSuiteDelete]: async (p) => {
+      const { projectId, id } = p as { projectId: string; id: string };
+      const project = ctx.projects.get(projectId);
+      project.testSuites = project.testSuites.filter((s) => s.id !== id);
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.TestSuiteRun]: async (p) => {
+      const params = p as {
+        sessionId: string;
+        suiteId?: string;
+        cases?: TestCase[];
+      };
+      const session = ctx.sessions.get(params.sessionId);
+      let cases: TestCase[] | undefined = params.cases;
+      let suiteId: string | null = params.suiteId ?? null;
+      if (!cases && suiteId) {
+        const project = ctx.projects.get(session.projectId);
+        const suite = project.testSuites.find((s) => s.id === suiteId);
+        if (!suite) throw new RelayError(ErrorCode.NOT_FOUND, `test suite not found: ${suiteId}`);
+        cases = suite.cases;
+      }
+      if (!cases) {
+        throw new RelayError(ErrorCode.INVALID_INPUT, 'testSuite.run requires cases or suiteId');
+      }
+      const startedAt = Date.now();
+      const caseResults = await runTestSuite(ctx, runtime, params.sessionId, cases);
+      await persist();
+      return {
+        suiteId,
+        sessionId: params.sessionId,
+        startedAt,
+        completedAt: Date.now(),
+        pass: caseResults.every((c) => c.pass),
+        cases: caseResults,
+      };
+    },
+
     [IpcMethod.TxTemplateDelete]: async (p) => {
       const { projectId, id } = p as { projectId: string; id: string };
       const project = ctx.projects.get(projectId);
@@ -915,6 +1184,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           computeUnitPrice?: number;
           airdropPayer?: bigint | string | number;
           payerKeypairId?: string | null;
+          additionalSignerKeypairIds?: string[];
         };
       };
       let txBytes: Uint8Array;
@@ -939,6 +1209,23 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
             payer: kp.publicKey.toBase58(),
             signers: [{ pubkey: kp.publicKey.toBase58(), secretKey: Array.from(kp.secretKey) }],
           };
+        }
+        if (
+          (b as { additionalSignerKeypairIds?: string[] }).additionalSignerKeypairIds &&
+          (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds.length > 0
+        ) {
+          const { Keypair } = await import('@solana/web3.js');
+          const have = new Set(b.signers.map((s) => s.pubkey));
+          const extras: SignerInput[] = [];
+          for (const id of (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds) {
+            const secret = await ctx.keypairs.exportSecretKey(id);
+            const kp = Keypair.fromSecretKey(secret);
+            const pub = kp.publicKey.toBase58();
+            if (have.has(pub)) continue;
+            have.add(pub);
+            extras.push({ pubkey: pub, secretKey: Array.from(kp.secretKey) });
+          }
+          b = { ...b, signers: [...b.signers, ...extras] };
         }
         if (b.airdropPayer !== undefined) {
           const lamports = BigInt(b.airdropPayer.toString());
@@ -971,10 +1258,122 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
     },
 
+    [IpcMethod.TxCompareVersions]: async (p) => {
+      const params = p as {
+        sessionId: string;
+        programId: string;
+        leftVersionId: string;
+        rightVersionId: string;
+        build: {
+          payer: string;
+          ixs: InstructionSpec[];
+          signers: SignerInput[];
+          computeUnitLimit?: number;
+          computeUnitPrice?: number;
+          airdropPayer?: bigint | string | number;
+          payerKeypairId?: string | null;
+          additionalSignerKeypairIds?: string[];
+        };
+      };
+      const session = ctx.sessions.get(params.sessionId);
+      const originalPin = session.programVersionOverrides?.[params.programId] ?? null;
+
+      // Inline simulate that uses runtime — kept simple, mirrors TxSimulate.
+      const simulateWithPin = async (versionId: string) => {
+        ctx.sessions.pinProgramVersion(params.sessionId, params.programId, versionId);
+        runtime.invalidate(params.sessionId);
+        let b = params.build;
+        if (b.payerKeypairId) {
+          const secret = await ctx.keypairs.exportSecretKey(b.payerKeypairId);
+          const { Keypair } = await import('@solana/web3.js');
+          const kp = Keypair.fromSecretKey(secret);
+          b = {
+            ...b,
+            payer: kp.publicKey.toBase58(),
+            signers: [{ pubkey: kp.publicKey.toBase58(), secretKey: Array.from(kp.secretKey) }],
+          };
+        } else if (b.payer === 'AUTO' || b.signers.some((s) => s.pubkey === 'AUTO')) {
+          const { Keypair } = await import('@solana/web3.js');
+          const kp = Keypair.generate();
+          b = {
+            ...b,
+            payer: kp.publicKey.toBase58(),
+            signers: [{ pubkey: kp.publicKey.toBase58(), secretKey: Array.from(kp.secretKey) }],
+          };
+        }
+        if (
+          (b as { additionalSignerKeypairIds?: string[] }).additionalSignerKeypairIds &&
+          (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds.length > 0
+        ) {
+          const { Keypair } = await import('@solana/web3.js');
+          const have = new Set(b.signers.map((s) => s.pubkey));
+          const extras: SignerInput[] = [];
+          for (const id of (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds) {
+            const secret = await ctx.keypairs.exportSecretKey(id);
+            const kp = Keypair.fromSecretKey(secret);
+            const pub = kp.publicKey.toBase58();
+            if (have.has(pub)) continue;
+            have.add(pub);
+            extras.push({ pubkey: pub, secretKey: Array.from(kp.secretKey) });
+          }
+          b = { ...b, signers: [...b.signers, ...extras] };
+        }
+        if (b.airdropPayer !== undefined) {
+          const lamports = BigInt(b.airdropPayer.toString());
+          await runtime.airdrop(params.sessionId, b.payer, lamports);
+        }
+        await runtime.expireBlockhash(params.sessionId);
+        const recentBlockhash = await runtime.latestBlockhash(params.sessionId);
+        const tx = buildTransaction({
+          payer: b.payer,
+          ixs: b.ixs,
+          recentBlockhash,
+          ...(b.computeUnitLimit !== undefined && { computeUnitLimit: b.computeUnitLimit }),
+          ...(b.computeUnitPrice !== undefined && { computeUnitPrice: b.computeUnitPrice }),
+        });
+        signTransaction(tx, b.signers);
+        const txBytes = tx.serialize();
+        const result = await runtime.simulateTransaction(params.sessionId, txBytes);
+        const trace = parseTrace(result.logs);
+        return {
+          success: result.success,
+          errorMessage: result.errorMessage,
+          cuConsumed: result.cuConsumed,
+          returnData: result.returnData ? Buffer.from(result.returnData).toString('base64') : null,
+          logs: result.logs,
+          trace,
+          simulated: true,
+        };
+      };
+
+      try {
+        const left = await simulateWithPin(params.leftVersionId);
+        const right = await simulateWithPin(params.rightVersionId);
+        const cuLeft = BigInt(left.cuConsumed.toString());
+        const cuRight = BigInt(right.cuConsumed.toString());
+        const summary = {
+          successMatch: left.success === right.success,
+          returnDataMatch: left.returnData === right.returnData,
+          cuDelta: (cuRight - cuLeft).toString(),
+          cuLeft: cuLeft.toString(),
+          cuRight: cuRight.toString(),
+        };
+        return { left, right, summary };
+      } finally {
+        ctx.sessions.pinProgramVersion(params.sessionId, params.programId, originalPin);
+        runtime.invalidate(params.sessionId);
+      }
+    },
+
     [IpcMethod.SnapshotSave]: async (p) => {
       const { sessionId, name } = p as { sessionId: string; name: string };
       const session = ctx.sessions.get(sessionId);
-      const payload = captureFromSession(session);
+      const project = ctx.projects.get(session.projectId);
+      const activeVersions: Record<string, string> = {};
+      for (const prog of Object.values(project.programs)) {
+        activeVersions[prog.programId] = prog.activeVersionId;
+      }
+      const payload = captureFromSession(session, activeVersions);
       const bytes = serializeSnapshot(payload);
       const hash = await ctx.blobs.put(bytes);
       const ref = newSnapshotRef(name, session.snapshots.at(-1)?.id ?? null);
@@ -986,7 +1385,11 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     },
 
     [IpcMethod.SnapshotRestore]: async (p) => {
-      const { sessionId, snapshotId } = p as { sessionId: string; snapshotId: string };
+      const { sessionId, snapshotId, restoreVersions } = p as {
+        sessionId: string;
+        snapshotId: string;
+        restoreVersions?: boolean;
+      };
       const session = ctx.sessions.get(sessionId);
       const ref = session.snapshots.find((s) => s.id === snapshotId);
       if (!ref) throw new RelayError(ErrorCode.NOT_FOUND, `snapshot not found: ${snapshotId}`);
@@ -1001,7 +1404,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         throw new RelayError(ErrorCode.CACHE_IO_FAILURE, `snapshot blob missing: ${ref.blobHash}`);
       }
       const payload = deserializeSnapshot(blob);
-      applySnapshot(session, payload);
+      applySnapshot(session, payload, { restoreVersions: restoreVersions === true });
+      runtime.invalidate(sessionId);
       await persist();
       return { ok: true, restoredFrom: ref.id };
     },

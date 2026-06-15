@@ -125,6 +125,7 @@ export function TxBuilderPanel({
   const [accounts, setAccounts] = useState<IxAccountInput[]>([]);
   const [keypairs, setKeypairs] = useState<KeypairMeta[]>([]);
   const [payerId, setPayerId] = useState<string>('');
+  const [extraSignerIds, setExtraSignerIds] = useState<string[]>([]);
   const [cuLimit, setCuLimit] = useState('');
   const [airdrop, setAirdrop] = useState('10000000000');
   const [drafts, setDrafts] = useState<PendingIx[]>([]);
@@ -476,6 +477,7 @@ export function TxBuilderPanel({
         airdropPayer: airdrop,
         ...(cuLimit && { computeUnitLimit: Number(cuLimit) }),
         ...(payerId && { payerKeypairId: payerId }),
+        ...(extraSignerIds.length > 0 && { additionalSignerKeypairIds: extraSignerIds }),
       },
     };
   };
@@ -951,11 +953,17 @@ export function TxBuilderPanel({
                     Accounts
                   </div>
                   <div className="flex flex-col gap-2">
-                    {selectedIx.accounts.map((acc) => (
+                    {selectedIx.accounts.map((acc, idx) => (
                       <div
                         key={acc.name}
-                        className="grid grid-cols-[160px_1fr_auto] items-center gap-2"
+                        className="grid grid-cols-[36px_160px_1fr_auto] items-center gap-2"
                       >
+                        <span
+                          className="font-mono text-2xs text-text-subtle text-right pr-1"
+                          title={`Account index ${idx}`}
+                        >
+                          #{idx}
+                        </span>
                         <div className="text-xs text-text-muted truncate">
                           {acc.name}
                           <div className="mt-0.5 flex gap-1 flex-wrap">
@@ -1031,8 +1039,14 @@ export function TxBuilderPanel({
                 {accounts.map((a, i) => (
                   <div
                     key={i}
-                    className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2"
+                    className="grid grid-cols-[28px_1fr_auto_auto_auto_auto] items-center gap-2"
                   >
+                    <span
+                      className="font-mono text-2xs text-text-subtle text-right pr-1"
+                      title={`Account index ${i}`}
+                    >
+                      #{i}
+                    </span>
                     <Input
                       value={a.pubkey}
                       onChange={(e) => updateAccount(i, { pubkey: e.target.value })}
@@ -1098,7 +1112,7 @@ export function TxBuilderPanel({
           </div>
 
           <Field
-            label="Sign with"
+            label="Pay fees with"
             help={
               keypairs.length === 0
                 ? 'No keypairs. Add one in the Keypairs panel.'
@@ -1118,6 +1132,49 @@ export function TxBuilderPanel({
               ))}
             </Select>
           </Field>
+
+          {keypairs.length > 0 && (
+            <Field
+              label="Additional signers"
+              help="Click to toggle. Required when an ix lists more than one signer account."
+              className="mt-3"
+            >
+              <div className="flex flex-wrap gap-1.5">
+                {keypairs
+                  .filter((k) => k.id !== payerId)
+                  .map((k) => {
+                    const checked = extraSignerIds.includes(k.id);
+                    return (
+                      <button
+                        key={k.id}
+                        type="button"
+                        onClick={() =>
+                          setExtraSignerIds((prev) =>
+                            prev.includes(k.id) ? prev.filter((x) => x !== k.id) : [...prev, k.id],
+                          )
+                        }
+                        className={[
+                          'inline-flex items-center gap-1 px-2 h-6 rounded-full border text-2xs transition-colors',
+                          checked
+                            ? 'bg-accent/20 border-accent text-text'
+                            : 'bg-surface-0 border-border text-text-muted hover:bg-surface-1 hover:text-text',
+                        ].join(' ')}
+                        title={k.pubkey}
+                      >
+                        <span
+                          className={[
+                            'inline-block w-1.5 h-1.5 rounded-full',
+                            checked ? 'bg-accent' : 'bg-text-subtle',
+                          ].join(' ')}
+                          aria-hidden
+                        />
+                        {k.label} · {k.pubkey.slice(0, 4)}…{k.pubkey.slice(-4)}
+                      </button>
+                    );
+                  })}
+              </div>
+            </Field>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Field label="Compute unit limit (optional)">

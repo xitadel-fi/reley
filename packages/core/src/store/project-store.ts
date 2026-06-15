@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ErrorCode, RelayError } from '@relay/shared';
+import type { ProgramSource, ProgramVersion } from '@relay/shared';
 import type {
   AddAccountInput,
   AddProgramInput,
@@ -7,6 +8,19 @@ import type {
   Project,
   ProjectMeta,
 } from './types.js';
+
+function mirrorActive<T extends { versions: ProgramVersion[]; activeVersionId: string }>(
+  prog: T,
+): T & { elfBlobHash: string; source: ProgramSource; clonedAtSlot: bigint | null } {
+  const active = prog.versions.find((v) => v.id === prog.activeVersionId) ?? prog.versions[0];
+  if (!active) return prog as never;
+  return {
+    ...prog,
+    elfBlobHash: active.elfBlobHash,
+    source: active.source,
+    clonedAtSlot: active.source.kind === 'cloned' ? active.source.slot : null,
+  };
+}
 
 export class ProjectStore {
   private readonly projects = new Map<string, Project>();
@@ -36,6 +50,7 @@ export class ProjectStore {
       scripts: [],
       txTemplates: [],
       workflows: [],
+      testSuites: [],
       createdAt: now,
       lastOpenedAt: now,
       pinned: false,
@@ -69,17 +84,119 @@ export class ProjectStore {
         `program already in project: ${input.programId}`,
       );
     }
-    p.programs[input.programId] = {
-      programId: input.programId,
-      label: input.label ?? input.programId,
+    const v1: ProgramVersion = {
+      id: randomUUID(),
+      label: 'v1',
       elfBlobHash: input.elfBlobHash,
       source: input.source,
       idlId: null,
+      createdAt: Date.now(),
+    };
+    p.programs[input.programId] = mirrorActive({
+      programId: input.programId,
+      label: input.label ?? input.programId,
+      idlId: null,
       accounts: [],
       upgradeAuthority: input.upgradeAuthority ?? null,
-      clonedAtSlot: input.clonedAtSlot ?? null,
-    };
+      versions: [v1],
+      activeVersionId: v1.id,
+      // mirrored below
+      elfBlobHash: v1.elfBlobHash,
+      source: v1.source,
+      clonedAtSlot: v1.source.kind === 'cloned' ? v1.source.slot : null,
+    });
     return p;
+  }
+
+  // ───────── Version management ─────────
+
+  /** Add a new version under an existing program. */
+  addProgramVersion(
+    projectId: string,
+    programId: string,
+    input: { label: string; elfBlobHash: string; source: ProgramSource; idlId?: string | null; notes?: string },
+  ): ProgramVersion {
+    const p = this.get(projectId);
+    const prog = p.programs[programId];
+    if (!prog) {
+      throw new RelayError(ErrorCode.NOT_FOUND, `program not in project: ${programId}`);
+    }
+    if (prog.versions.some((v) => v.label === input.label)) {
+      throw new RelayError(
+        ErrorCode.INVALID_INPUT,
+        `version label already used: ${input.label}`,
+      );
+    }
+    const version: ProgramVersion = {
+      id: randomUUID(),
+      label: input.label,
+      elfBlobHash: input.elfBlobHash,
+      source: input.source,
+      idlId: input.idlId ?? null,
+      ...(input.notes !== undefined && { notes: input.notes }),
+      createdAt: Date.now(),
+    };
+    prog.versions.push(version);
+    return version;
+  }
+
+  removeProgramVersion(projectId: string, programId: string, versionId: string): void {
+    const p = this.get(projectId);
+    const prog = p.programs[programId];
+    if (!prog) {
+      throw new RelayError(ErrorCode.NOT_FOUND, `program not in project: ${programId}`);
+    }
+    if (prog.versions.length <= 1) {
+      throw new RelayError(
+        ErrorCode.INVALID_INPUT,
+        'cannot remove the last version — remove the whole program instead',
+      );
+    }
+    if (prog.activeVersionId === versionId) {
+      throw new RelayError(
+        ErrorCode.INVALID_INPUT,
+        'cannot remove the active version — switch active first',
+      );
+    }
+    const before = prog.versions.length;
+    prog.versions = prog.versions.filter((v) => v.id !== versionId);
+    if (prog.versions.length === before) {
+      throw new RelayError(ErrorCode.NOT_FOUND, `version not found: ${versionId}`);
+    }
+  }
+
+  setActiveProgramVersion(projectId: string, programId: string, versionId: string): void {
+    const p = this.get(projectId);
+    const prog = p.programs[programId];
+    if (!prog) {
+      throw new RelayError(ErrorCode.NOT_FOUND, `program not in project: ${programId}`);
+    }
+    const v = prog.versions.find((x) => x.id === versionId);
+    if (!v) throw new RelayError(ErrorCode.NOT_FOUND, `version not found: ${versionId}`);
+    prog.activeVersionId = versionId;
+    // Mirror top-level fields onto the new active version's bytes.
+    prog.elfBlobHash = v.elfBlobHash;
+    prog.source = v.source;
+    prog.clonedAtSlot = v.source.kind === 'cloned' ? v.source.slot : null;
+  }
+
+  setProgramVersionLabel(
+    projectId: string,
+    programId: string,
+    versionId: string,
+    label: string,
+  ): void {
+    const p = this.get(projectId);
+    const prog = p.programs[programId];
+    if (!prog) {
+      throw new RelayError(ErrorCode.NOT_FOUND, `program not in project: ${programId}`);
+    }
+    if (prog.versions.some((v) => v.id !== versionId && v.label === label)) {
+      throw new RelayError(ErrorCode.INVALID_INPUT, `version label already used: ${label}`);
+    }
+    const v = prog.versions.find((x) => x.id === versionId);
+    if (!v) throw new RelayError(ErrorCode.NOT_FOUND, `version not found: ${versionId}`);
+    v.label = label;
   }
 
   setProgramLabel(projectId: string, programId: string, label: string): Project {
@@ -165,6 +282,28 @@ export class ProjectStore {
       }
       if (!Array.isArray((p as { workflows?: unknown }).workflows)) {
         (p as { workflows: unknown[] }).workflows = [];
+      }
+      if (!Array.isArray((p as { testSuites?: unknown }).testSuites)) {
+        (p as { testSuites: unknown[] }).testSuites = [];
+      }
+      // Synthesize multi-version layout for legacy single-version programs
+      // that bypassed the per-entity sink upgrade (e.g. project created via
+      // direct ProjectStore.addProgram before the multi-version shipped).
+      for (const prog of Object.values(p.programs)) {
+        if (!Array.isArray((prog as { versions?: unknown }).versions) || prog.versions.length === 0) {
+          const v1: ProgramVersion = {
+            id: randomUUID(),
+            label: 'v1',
+            elfBlobHash: prog.elfBlobHash,
+            source: prog.source,
+            idlId: (prog as { idlId?: string | null }).idlId ?? null,
+            createdAt: Date.now(),
+          };
+          prog.versions = [v1];
+          prog.activeVersionId = v1.id;
+        } else if (!prog.activeVersionId || !prog.versions.some((v) => v.id === prog.activeVersionId)) {
+          prog.activeVersionId = prog.versions[0]!.id;
+        }
       }
       this.projects.set(p.id, p);
     }

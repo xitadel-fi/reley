@@ -33,6 +33,13 @@ export interface SessionState {
   txHistory: TxRecord[];
   snapshots: SnapshotRef[];
   isDefault: boolean;
+  /**
+   * Per-program override of the project-level active version. Keyed by
+   * programId. When set, this session's runtime loads the pinned version's
+   * ELF instead of the project's `activeVersionId`. Undefined / missing key
+   * = follow project default.
+   */
+  programVersionOverrides?: Record<Base58String, Uuid>;
 }
 
 export interface SessionMeta {

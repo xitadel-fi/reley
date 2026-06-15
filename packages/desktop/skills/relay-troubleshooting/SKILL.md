@@ -1,6 +1,6 @@
 ---
 name: relay-troubleshooting
-description: Common Relay failure modes — invalid account data on MintTo, mint authority mismatch on cloned mainnet mints, missing signers, blank screen after session click, worker exit codes — and their fixes.
+description: Common Relay failure modes — invalid account data on MintTo, mint authority mismatch on cloned mainnet mints, missing signers, multi-sig signer mismatch, version-pin desync, snapshot replay failure, blank screen after session click, worker exit codes — and their fixes.
 ---
 
 # Relay troubleshooting
@@ -51,11 +51,50 @@ See `relay-patch` for the setField op.
 ## "no keypair for required signer"
 
 A tx instruction marks an account as `isSigner: true` but the pubkey isn't
-in the project keypair store.
+in the project keypair store, or isn't selected in `additionalSignerKeypairIds`.
 
-**Fix**: either add the keypair (Keypairs panel → Import) or change the
-account to `isSigner: false` in the template if it doesn't actually need
-to sign.
+**Fix**: add the keypair (Keypairs panel → Import or Generate), then in
+TxBuilder toggle its chip under **Additional signers** (or in a workflow tx
+step's `additionalSignerKeypairIds`). If the row truly doesn't need to sign,
+flip `isSigner: false` in the template.
+
+---
+
+## Signature verification failed / `MissingRequiredSignature`
+
+Tx contains a signer account whose corresponding keypair wasn't supplied.
+
+**Fix**: every account row with `isSigner: true` needs exactly one keypair
+covering it. The first signer is the payer (`payerKeypairId`). All other
+signer rows must appear in `additionalSignerKeypairIds`. Backend dedupes
+duplicates against the payer, so listing the payer's keypair under
+additional signers is harmless (it's filtered out).
+
+---
+
+## "Wrong" program logs after switching project active version
+
+You switched a program's `activeVersionId` but a session shows the old
+behaviour.
+
+**Fix**: the session may have a sticky `programVersionOverrides[pid]`
+pinning the old version (look for the pin badge next to the program in the
+sidebar, or call `session.getVersionPins`). Clear with
+`programVersion.pinForSession(sessionId, programId, null)` or via the
+sidebar pin chip → Reset. Runtime is invalidated automatically on pin
+change.
+
+---
+
+## Snapshot restore brings back old program ELFs
+
+A v2 snapshot captures `programVersions` + `programVersionOverrides`. On
+`snapshot.restore`, pass `{ restoreVersions: true }` to also restore the
+captured project active versions + session overrides (default is **false** →
+restores only sandbox state, leaves program version selection untouched).
+
+v1 snapshots have no version info — they're promoted to v2 on read but
+`restoreVersions` is a no-op for them.
 
 ---
 
@@ -118,5 +157,8 @@ buffer listener is attached **before** the seal adapter.
 
 ## Cross-references
 
-- `relay-tx-template` — instruction ordering rules.
+- `relay-tx-template` — instruction ordering + run-time signer params.
+- `relay-workflow` — per-step pin / multi-signer fields.
+- `relay-versions` — manage + diff program versions.
+- `relay-snapshot` — capture / restore including version metadata.
 - `relay-patch` — fixing cloned-state mismatches.

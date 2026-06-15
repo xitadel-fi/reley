@@ -5,6 +5,7 @@ export const IpcMethod = {
   ProjectClose: 'project.close',
   ProjectRename: 'project.rename',
   ProjectDelete: 'project.delete',
+  ProjectReload: 'project.reload',
 
   SessionCreate: 'session.create',
   SessionList: 'session.list',
@@ -17,6 +18,7 @@ export const IpcMethod = {
   SessionWarpByTime: 'session.warpByTime',
   SessionExpireBlockhash: 'session.expireBlockhash',
   SessionGetClock: 'session.getClock',
+  SessionGetVersionPins: 'session.getVersionPins',
 
   ProgramAdd: 'program.add',
   ProgramAddLocal: 'program.addLocal',
@@ -26,6 +28,12 @@ export const IpcMethod = {
   ProgramListBuiltins: 'program.listBuiltins',
   ProgramSetLabel: 'program.setLabel',
   ProgramListInstructions: 'program.listInstructions',
+  ProgramVersionList: 'program.versionList',
+  ProgramVersionAdd: 'program.versionAdd',
+  ProgramVersionRemove: 'program.versionRemove',
+  ProgramVersionSetActive: 'program.versionSetActive',
+  ProgramVersionSetLabel: 'program.versionSetLabel',
+  ProgramVersionPinForSession: 'program.versionPinForSession',
   TxEncodeIx: 'tx.encodeIx',
   TxDecodeIx: 'tx.decodeIx',
 
@@ -51,6 +59,7 @@ export const IpcMethod = {
   TxSend: 'tx.send',
   TxSimulate: 'tx.simulate',
   TxReplay: 'tx.replay',
+  TxCompareVersions: 'tx.compareVersions',
   TxHistory: 'tx.history',
   TxHistoryClear: 'tx.historyClear',
   TxTemplateSave: 'tx.templateSave',
@@ -60,6 +69,10 @@ export const IpcMethod = {
   WorkflowList: 'workflow.list',
   WorkflowDelete: 'workflow.delete',
   WorkflowRun: 'workflow.run',
+  TestSuiteSave: 'testSuite.save',
+  TestSuiteList: 'testSuite.list',
+  TestSuiteDelete: 'testSuite.delete',
+  TestSuiteRun: 'testSuite.run',
 
   SnapshotSave: 'snapshot.save',
   SnapshotRestore: 'snapshot.restore',
@@ -69,6 +82,8 @@ export const IpcMethod = {
   IdlAttach: 'idl.attach',
   IdlDetach: 'idl.detach',
   IdlList: 'idl.list',
+  IdlDiff: 'idl.diff',
+  IdlDiffPrograms: 'idl.diffPrograms',
   IdlFetchOnchain: 'idl.fetchOnchain',
 
   KeypairGenerate: 'keypair.generate',

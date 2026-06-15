@@ -40,7 +40,7 @@ describe('snapshot serialize/deserialize', () => {
     const payload = captureFromSession(session);
     const bytes = serializeSnapshot(payload);
     const restored = deserializeSnapshot(bytes);
-    expect(restored.formatVersion).toBe(1);
+    expect(restored.formatVersion).toBe(2);
     expect(restored.currentSlot).toBe(100n);
     const acc = restored.accounts.ABC;
     expect(acc?.lamports).toBe(500n);

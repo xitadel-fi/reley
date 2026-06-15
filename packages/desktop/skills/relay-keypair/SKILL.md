@@ -50,7 +50,7 @@ Verdict: plain base58 on disk. Do not use these for mainnet.
 
 ## Using as a signer
 
-In a tx template:
+In a tx template, mark the row as a signer:
 
 ```json
 {
@@ -60,11 +60,21 @@ In a tx template:
 }
 ```
 
-Pre-flight diagnostics check that every required signer is either the
-ephemeral payer or has a registered keypair. Missing → blocking error.
+At run time:
+
+- **Payer** (first signer) is selected via `payerKeypairId` in the TxBuilder
+  or in a workflow tx step's `payerKeypairId` field.
+- **Additional signers** are selected via `additionalSignerKeypairIds: string[]`.
+  Backend dedupes the payer's pubkey from this list before
+  `signTransaction(tx, signers)`.
+
+A tx that has N signer rows needs N distinct keypairs registered here, with
+matching pubkeys. Pre-flight diagnostics flag missing signers as a blocking
+error.
 
 ## Cross-references
 
-- `relay-tx-template` — `isSigner` flags.
+- `relay-tx-template` — `isSigner` flags + run-time signer params.
+- `relay-workflow` — `additionalSignerKeypairIds` on tx steps.
 - `relay-patch` — `setField mintAuthority → <your keypair's pubkey>` so
   cloned mints can be minted from inside the sandbox.

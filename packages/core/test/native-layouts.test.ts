@@ -23,11 +23,16 @@ describe('resolveLayout', () => {
     expect(layout?.name).toBe('SplToken.Mint');
   });
 
-  it('resolves Token-2022 with extensions (larger size)', () => {
+  it('resolves Token-2022 token account with extensions (data > 165)', () => {
     const layout = resolveLayout(TOKEN_2022_PROGRAM.toBase58(), 200);
-    // 200 < mint base 82? no, > 82, so first matched is Mint via dataLen>=size.
-    // Both mint (82) and account (165) match; resolver returns first in NATIVE_LAYOUTS order.
-    expect(layout?.name).toBe('SplToken.Mint');
+    // No exact size match; fall back to largest-fits. Both MINT (82) and
+    // ACCOUNT (165) fit; ACCOUNT wins because 165 > 82.
+    expect(layout?.name).toBe('SplToken.Account');
+  });
+
+  it('resolves SPL Token account at exact 165', () => {
+    const layout = resolveLayout(TOKEN_PROGRAM.toBase58(), 165);
+    expect(layout?.name).toBe('SplToken.Account');
   });
 
   it('returns null for unknown owner', () => {

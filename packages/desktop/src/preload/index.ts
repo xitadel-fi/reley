@@ -37,6 +37,16 @@ const api = {
     projectRoot: parseProjectRootFromArgv(),
     isWelcome: parseIsWelcome(),
   },
+  onMenu: (cb: (cmd: string) => void): (() => void) => {
+    const handler = (_e: unknown, cmd: string): void => cb(cmd);
+    ipcRenderer.on('relay:menu', handler);
+    return () => ipcRenderer.removeListener('relay:menu', handler);
+  },
+  onFilesChanged: (cb: (info: { paths: string[] }) => void): (() => void) => {
+    const handler = (_e: unknown, info: { paths: string[] }): void => cb(info);
+    ipcRenderer.on('relay:files-changed', handler);
+    return () => ipcRenderer.removeListener('relay:files-changed', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('relay', api);

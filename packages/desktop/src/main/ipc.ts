@@ -147,6 +147,20 @@ async function handleAppMethod(
     case 'app.files.write':
       return handleFilesWrite(sender, String(p.path), String(p.content));
 
+    case 'app.dialog.openFile': {
+      const win = BrowserWindow.fromWebContents(sender);
+      const filters = Array.isArray(p.filters)
+        ? (p.filters as Array<{ name: string; extensions: string[] }>)
+        : undefined;
+      const r = await dialog.showOpenDialog(win!, {
+        properties: ['openFile'],
+        title: typeof p.title === 'string' ? p.title : 'Pick a file',
+        ...(filters && { filters }),
+      });
+      if (r.canceled || r.filePaths.length === 0) return { canceled: true };
+      return { canceled: false, path: r.filePaths[0] };
+    }
+
     default:
       throw new Error(`unknown app method: ${method}`);
   }

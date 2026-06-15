@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Clock,
   Droplets,
+  GitBranch,
   Play,
   Plus,
   RefreshCcw,
@@ -23,6 +24,7 @@ import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
+import { IxInspectButton } from './IxInspectModal';
 import type { Project } from '../types';
 import {
   Badge,
@@ -35,7 +37,14 @@ import {
   Spinner,
 } from '../ui';
 
-type StepKind = 'tx' | 'airdrop' | 'warpTime' | 'warpSlot' | 'expireBlockhash' | 'resetSession';
+type StepKind =
+  | 'tx'
+  | 'airdrop'
+  | 'warpTime'
+  | 'warpSlot'
+  | 'expireBlockhash'
+  | 'resetSession'
+  | 'setProgramVersion';
 
 interface BaseStep {
   id: string;
@@ -59,13 +68,20 @@ type Step =
       computeUnitLimit?: number | null;
       airdropPayerLamports?: string | null;
       payerKeypairId?: string | null;
+      additionalSignerKeypairIds?: string[];
       templateId?: string | null;
+      programVersionOverrides?: Record<string, string>;
     })
   | (BaseStep & { kind: 'airdrop'; pubkey: string; lamports: string })
   | (BaseStep & { kind: 'warpTime'; seconds: number })
   | (BaseStep & { kind: 'warpSlot'; slot: string })
   | (BaseStep & { kind: 'expireBlockhash' })
-  | (BaseStep & { kind: 'resetSession' });
+  | (BaseStep & { kind: 'resetSession' })
+  | (BaseStep & {
+      kind: 'setProgramVersion';
+      programId: string;
+      versionId: string | null;
+    });
 
 interface Workflow {
   id: string;
@@ -128,6 +144,8 @@ const defaultStep = (kind: StepKind): Step => {
       return { ...base, kind };
     case 'resetSession':
       return { ...base, kind };
+    case 'setProgramVersion':
+      return { ...base, kind, programId: '', versionId: null };
   }
 };
 
@@ -145,6 +163,8 @@ const prettyKind = (k: StepKind): string => {
       return 'Expire blockhash';
     case 'resetSession':
       return 'Reset session';
+    case 'setProgramVersion':
+      return 'Set program version';
   }
 };
 
@@ -162,6 +182,8 @@ const stepIcon = (k: StepKind, size = 13): ReactNode => {
       return <RefreshCcw size={size} aria-hidden />;
     case 'resetSession':
       return <RotateCcw size={size} aria-hidden />;
+    case 'setProgramVersion':
+      return <GitBranch size={size} aria-hidden />;
   }
 };
 
@@ -172,14 +194,17 @@ const STEP_KINDS: StepKind[] = [
   'warpSlot',
   'expireBlockhash',
   'resetSession',
+  'setProgramVersion',
 ];
 
 export function WorkflowsPanel({
   project,
   activeSessionId,
+  onSelectSession,
 }: {
   project: Project;
   activeSessionId: string | null;
+  onSelectSession?: (id: string) => void;
 }): JSX.Element {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [editing, setEditing] = useState<Workflow | null>(null);
@@ -250,10 +275,35 @@ export function WorkflowsPanel({
     if (editing?.id === id) setEditing(null);
   };
 
+  const pickSessionViaModal = async (): Promise<string | null> => {
+    let sessions: Array<{ id: string; name: string; isDefault: boolean; accountCount: number }> =
+      [];
+    try {
+      sessions = await api.call('session.list', { projectId: project.id });
+    } catch (e) {
+      toast.error(String(e));
+      return null;
+    }
+    const id = await dialogs.pickFromList({
+      title: 'Select session',
+      message: 'Pick which session to run against.',
+      items: sessions.map((s) => ({
+        id: s.id,
+        label: s.name + (s.isDefault ? ' (default)' : ''),
+        hint: `${s.accountCount} accounts`,
+      })),
+      emptyMessage: 'No sessions in this project. Create one from the sidebar.',
+      confirmText: 'Run',
+    });
+    if (id) onSelectSession?.(id);
+    return id;
+  };
+
   const run = async (wf?: Workflow): Promise<void> => {
-    if (!activeSessionId) {
-      toast.error('select a session first');
-      return;
+    let sid = activeSessionId;
+    if (!sid) {
+      sid = await pickSessionViaModal();
+      if (!sid) return;
     }
     const target = wf ?? editing;
     if (!target) return;
@@ -265,7 +315,7 @@ export function WorkflowsPanel({
     setResult(null);
     try {
       const r = await api.call<RunResult>('workflow.run', {
-        sessionId: activeSessionId,
+        sessionId: sid,
         ...(target.id && { workflowId: target.id }),
         ...(!target.id && { steps: target.steps }),
       });
@@ -534,6 +584,7 @@ function WorkflowEditor({
                       templates={allTemplates}
                       onPatch={(patch) => updateStep(step.id, patch)}
                       suggestions={suggestions}
+                      project={project}
                     />
                   </div>
                 </li>
@@ -553,11 +604,13 @@ function StepForm({
   templates,
   onPatch,
   suggestions,
+  project,
 }: {
   step: Step;
   templates: Array<{ id: string; name: string; ixs: TxIxLite[] }>;
   onPatch: (patch: Partial<Step>) => void;
   suggestions: import('../components/useAddressSuggestions').AddressSuggestion[];
+  project: Project;
 }): JSX.Element {
   if (step.kind === 'airdrop') {
     return (
@@ -610,18 +663,84 @@ function StepForm({
   if (step.kind === 'expireBlockhash' || step.kind === 'resetSession') {
     return <div className="text-2xs text-text-subtle italic">no parameters</div>;
   }
+  if (step.kind === 'setProgramVersion') {
+    return <SetProgramVersionForm step={step} project={project} onPatch={onPatch} />;
+  }
 
-  return <TxStepForm step={step} templates={templates} onPatch={onPatch} />;
+  return <TxStepForm step={step} templates={templates} onPatch={onPatch} project={project} />;
+}
+
+function SetProgramVersionForm({
+  step,
+  project,
+  onPatch,
+}: {
+  step: Step & { kind: 'setProgramVersion' };
+  project: Project;
+  onPatch: (patch: Partial<Step>) => void;
+}): JSX.Element {
+  const programs = Object.values(project.programs);
+  const selected = step.programId ? project.programs[step.programId] : undefined;
+  const versions = selected?.versions ?? [];
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-2xs text-text-muted">
+        Persistently switches the session-level version pin for one program.
+        All subsequent steps use the new version until another
+        setProgramVersion step. Use V1→V2 then V2→V1 to flip-test upgrade and
+        downgrade behavior in one run.
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <Field label="Program">
+          <Select
+            value={step.programId}
+            onChange={(e) =>
+              onPatch({
+                programId: e.target.value,
+                versionId: null,
+              } as Partial<Step>)
+            }
+          >
+            <option value="">— pick a program —</option>
+            {programs.map((p) => (
+              <option key={p.programId} value={p.programId}>
+                {p.label} · {p.versions.length} versions
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Version to pin">
+          <Select
+            value={step.versionId ?? ''}
+            disabled={!step.programId}
+            onChange={(e) =>
+              onPatch({ versionId: e.target.value || null } as Partial<Step>)
+            }
+          >
+            <option value="">(unpin → follow project active)</option>
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {selected?.activeVersionId === v.id ? ' (project active)' : ''}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </div>
+  );
 }
 
 function TxStepForm({
   step,
   templates,
   onPatch,
+  project,
 }: {
   step: Step & { kind: 'tx' };
   templates: Array<{ id: string; name: string; ixs: TxIxLite[] }>;
   onPatch: (patch: Partial<Step>) => void;
+  project: Project;
 }): JSX.Element {
   const [keypairs, setKeypairs] = useState<Array<{ id: string; label: string; pubkey: string }>>(
     [],
@@ -680,7 +799,7 @@ function TxStepForm({
       </Field>
 
       <Field
-        label="Payer"
+        label="Pay fees with"
         help="Sandbox-only signing. Ephemeral payer recommended unless ix requires a specific signer."
       >
         <Select
@@ -697,6 +816,52 @@ function TxStepForm({
           ))}
         </Select>
       </Field>
+
+      {keypairs.length > 0 && (
+        <Field
+          label="Additional signers"
+          help="Click to toggle. Required when an ix lists more than one signer account."
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {keypairs
+              .filter((k) => k.id !== (step.payerKeypairId ?? ''))
+              .map((k) => {
+                const current = step.additionalSignerKeypairIds ?? [];
+                const checked = current.includes(k.id);
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => {
+                      const next = checked
+                        ? current.filter((x) => x !== k.id)
+                        : [...current, k.id];
+                      onPatch({
+                        additionalSignerKeypairIds: next.length > 0 ? next : undefined,
+                      } as Partial<Step>);
+                    }}
+                    className={[
+                      'inline-flex items-center gap-1 px-2 h-6 rounded-full border text-2xs transition-colors',
+                      checked
+                        ? 'bg-accent/20 border-accent text-text'
+                        : 'bg-surface-0 border-border text-text-muted hover:bg-surface-1 hover:text-text',
+                    ].join(' ')}
+                    title={k.pubkey}
+                  >
+                    <span
+                      className={[
+                        'inline-block w-1.5 h-1.5 rounded-full',
+                        checked ? 'bg-accent' : 'bg-text-subtle',
+                      ].join(' ')}
+                      aria-hidden
+                    />
+                    {k.label} · {k.pubkey.slice(0, 4)}…{k.pubkey.slice(-4)}
+                  </button>
+                );
+              })}
+          </div>
+        </Field>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="CU limit">
@@ -736,15 +901,80 @@ function TxStepForm({
         ) : (
           <ol className="flex flex-col gap-0.5">
             {step.ixs.map((ix, i) => (
-              <li key={i} className="text-2xs text-text-muted">
-                <span className="font-mono text-text-subtle mr-1.5">{i + 1}.</span>
-                <span className="text-accent">{ix.instructionName}</span>{' '}
-                <span className="text-text-subtle">on</span> <span className="font-mono">{ix.programLabel}</span>{' '}
-                <span className="text-text-subtle">·</span> {ix.summary}
+              <li key={i} className="text-2xs text-text-muted flex items-center gap-2">
+                <span className="font-mono text-text-subtle">{i + 1}.</span>
+                <span className="flex-1 min-w-0">
+                  <span className="text-accent">{ix.instructionName}</span>{' '}
+                  <span className="text-text-subtle">on</span>{' '}
+                  <span className="font-mono">{ix.programLabel}</span>{' '}
+                  <span className="text-text-subtle">·</span> {ix.summary}
+                </span>
+                <IxInspectButton ix={ix} project={project} />
               </li>
             ))}
           </ol>
         )}
+      </div>
+
+      <ProgramVersionOverridesEditor step={step} project={project} onPatch={onPatch} />
+    </div>
+  );
+}
+
+function ProgramVersionOverridesEditor({
+  step,
+  project,
+  onPatch,
+}: {
+  step: Step & { kind: 'tx' };
+  project: Project;
+  onPatch: (patch: Partial<Step>) => void;
+}): JSX.Element | null {
+  const multiVersionPrograms = Object.values(project.programs).filter(
+    (p) => Array.isArray(p.versions) && p.versions.length >= 2,
+  );
+  if (multiVersionPrograms.length === 0) return null;
+  const overrides = step.programVersionOverrides ?? {};
+  return (
+    <div className="rounded border border-border bg-bg p-2.5 mt-2">
+      <div className="text-2xs text-text-subtle mb-1.5">
+        Program version pins for this step{' '}
+        <Badge size="sm" variant="default">
+          {Object.keys(overrides).length}
+        </Badge>
+      </div>
+      <div className="text-2xs text-text-subtle mb-2">
+        Optional. Pins the chosen version for the duration of this step only — restored after.
+      </div>
+      <div className="flex flex-col gap-2">
+        {multiVersionPrograms.map((prog) => {
+          const current = overrides[prog.programId] ?? '';
+          return (
+            <div key={prog.programId} className="grid grid-cols-[1fr_180px] gap-2 items-center">
+              <div className="text-2xs text-text-muted truncate">{prog.label}</div>
+              <Select
+                value={current}
+                sizeVariant="sm"
+                onChange={(e) => {
+                  const next = { ...overrides };
+                  if (e.target.value) next[prog.programId] = e.target.value;
+                  else delete next[prog.programId];
+                  onPatch({
+                    programVersionOverrides:
+                      Object.keys(next).length > 0 ? next : undefined,
+                  } as Partial<Step>);
+                }}
+              >
+                <option value="">(follow session)</option>
+                {prog.versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
