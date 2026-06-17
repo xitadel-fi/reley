@@ -361,15 +361,25 @@ export function App(): JSX.Element {
     return api.onFilesChanged(() => {
       void (async () => {
         try {
-          await api.call('project.reload');
+          const project = await api.call<Project>('project.reload');
+          if (project) {
+            setActiveProject(project);
+            const sess = await api.call<SessionMeta[]>('session.list', { projectId: project.id });
+            setSessions(sess);
+            const idls = await api.call<Array<{ programId: string }>>('idl.list');
+            setIdlAttached(new Set(idls.map((i) => i.programId)));
+            setExpandedPrograms((prev) => {
+              if (prev.size === 0) return new Set(Object.keys(project.programs));
+              return prev;
+            });
+          }
         } catch {
           /* worker may be mid-spawn; next event retries */
         }
-        if (activeProjectId) void reloadProject(activeProjectId);
         setFilesRefreshKey((k) => k + 1);
       })();
     });
-  }, [activeProjectId, reloadProject]);
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (activeProjectId) void reloadProject(activeProjectId);
