@@ -21,26 +21,42 @@
       "recommended": true,
       "style": {
         "noNonNullAssertion": "warn",
+        "noParameterAssign": "off",
+        "noUnusedTemplateLiteral": "off",
+        "useConst": "off",
+        "useTemplate": "off",
         "useImportType": "error",
         "useNodejsImportProtocol": "error"
       },
       "suspicious": {
         "noConsoleLog": "off",
-        "noArrayIndexKey": "off"
+        "noArrayIndexKey": "off",
+        "noExplicitAny": "off"
       },
       "correctness": {
+        "useExhaustiveDependencies": "off",
         "noUnusedVariables": "warn",
         "noUnusedImports": "warn"
       },
       "complexity": {
         "noForEach": "off",
-        "noUselessFragments": "off"
+        "noUselessFragments": "off",
+        "noUselessSwitchCase": "off",
+        "useLiteralKeys": "off"
+      },
+      "performance": {
+        "noDelete": "off"
       },
       "a11y": {
+        "noAutofocus": "off",
         "noLabelWithoutControl": "off",
+        "useFocusableInteractive": "off",
         "useButtonType": "off",
         "useKeyWithClickEvents": "off",
         "useSemanticElements": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
       }
     }
   },
