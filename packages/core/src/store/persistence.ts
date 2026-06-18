@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ErrorCode, RelayError } from '@relay/shared';
@@ -406,12 +406,9 @@ export class JsonFileSink implements PersistenceSink {
 // ---------- Helpers ----------
 
 async function atomicWrite(path: string, data: string): Promise<void> {
-  // Direct write — no tmp+rename. The tmp-file pattern was polluting the
-  // Files tree (one transient `.tmp` per entity per save × dozens of
-  // entities per persist). Trade off: a crash mid-write can leave a
-  // partially-written file. Acceptable for a dev sandbox where blobs are
-  // content-addressed elsewhere and JSON entities are cheap to recreate.
-  await writeFile(path, data);
+  const tmp = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await writeFile(tmp, data);
+  await rename(tmp, path);
 }
 
 function replacer(_key: string, value: unknown): unknown {

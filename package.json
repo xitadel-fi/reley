@@ -6,16 +6,16 @@
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@11.4.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "typecheck": "pnpm -r typecheck",
-    "clean": "pnpm -r exec rm -rf dist out .tsbuildinfo",
+    "typecheck": "pnpm --filter @relay/shared build && pnpm --filter @relay/core build && pnpm -r typecheck",
+    "clean": "pnpm -r exec rm -rf dist out .tsbuildinfo tsconfig.tsbuildinfo",
     "cli": "pnpm --filter @relay/core-cli start"
   },
   "devDependencies": {

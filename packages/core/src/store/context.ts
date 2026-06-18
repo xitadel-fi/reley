@@ -61,6 +61,8 @@ export class CoreContext {
   }
 
   async load(): Promise<void> {
+    await this.waitForSavesToSettle();
+
     const meta = await this.manifestSink.load();
     if (meta) {
       const [templates, workflows, testSuites, scripts, patches, programs] = await Promise.all([
@@ -97,6 +99,12 @@ export class CoreContext {
 
   private inFlight: Promise<void> | null = null;
   private nextQueued: Promise<void> | null = null;
+
+  private async waitForSavesToSettle(): Promise<void> {
+    while (this.inFlight || this.nextQueued) {
+      await (this.nextQueued ?? this.inFlight);
+    }
+  }
 
   /**
    * Serialize + coalesce saves. Multiple IPC handlers may call `persist()`

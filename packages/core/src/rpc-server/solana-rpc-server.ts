@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { PublicKey, VersionedTransaction, Transaction } from '@solana/web3.js';
+import { PublicKey, type VersionedTransaction, type Transaction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { ErrorCode, RelayError } from '@relay/shared';
 import type { CoreContext } from '../store/context.js';

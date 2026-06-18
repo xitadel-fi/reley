@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, normalize, relative, resolve, sep } from 'node:path';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
@@ -201,7 +202,7 @@ function resolveInRoot(root: string, rel: string): string {
 
 async function walkDir(abs: string, root: string): Promise<FileNode[]> {
   const out: FileNode[] = [];
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let entries: Dirent<string>[];
   try {
     entries = await readdir(abs, { withFileTypes: true });
   } catch {

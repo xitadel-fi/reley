@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { cp, existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { cp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { BrowserWindow, shell } from 'electron';
 import { getAppStore } from './app-store';
 
-const cpAsync = promisify(cp);
 import {
   shutdownWorkerForWindow,
   spawnWorkerForWindow,
@@ -77,7 +75,7 @@ export async function createProjectFolder(
  * Sync bundled SKILL.md files into `<projectRoot>/.claude/skills/`. Force-
  * overwrites the bundled relay-* skill dirs so app updates ship fresh docs to
  * existing projects. User-added skills under different names are untouched
- * (cpAsync only writes paths that exist in the source tree). Errors swallowed.
+ * (cp only writes paths that exist in the source tree). Errors swallowed.
  */
 async function copyBundledSkills(projectPath: string): Promise<void> {
   try {
@@ -85,7 +83,7 @@ async function copyBundledSkills(projectPath: string): Promise<void> {
     if (!existsSync(src)) return;
     const dest = join(projectPath, '.claude', 'skills');
     await mkdir(dest, { recursive: true });
-    await cpAsync(src, dest, { recursive: true, force: true, errorOnExist: false });
+    await cp(src, dest, { recursive: true, force: true, errorOnExist: false });
   } catch {
     /* non-fatal: project still usable without skills */
   }
