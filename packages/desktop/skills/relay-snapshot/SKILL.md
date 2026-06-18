@@ -1,16 +1,16 @@
 ---
 name: relay-snapshot
-description: Relay session snapshots — what gets captured, the v1 → v2 format bump for multi-version program metadata, and how to restore with or without the captured version pins.
+description: Relay sandbox snapshots — what gets captured, the v1 → v2 format bump for multi-version program metadata, and how to restore with or without the captured version pins.
 ---
 
 # Snapshots
 
-A snapshot freezes a session's full sandbox state so you can re-run a tx,
+A snapshot freezes a sandbox's full sandbox state so you can re-run a tx,
 diff outcomes, or share a repro.
 
 ## Where they live
 
-Inline inside the owning session file:
+Inline inside the owning sandbox file:
 
 ```
 .relay/sessions/<id>.json
@@ -28,7 +28,7 @@ identified as such after you've already upgraded the project to v2.
 - **v1** (legacy): only `payload`. No knowledge of program versions.
 - **v2** (current, `SNAPSHOT_FORMAT_VERSION = 2`): adds
   `programVersions: { [programId]: versionId }` (project active at capture
-  time) and `programVersionOverrides: { [programId]: versionId }` (session
+  time) and `programVersionOverrides: { [programId]: versionId }` (sandbox
   pins at capture time).
 
 v1 snapshots are auto-promoted to v2 on read: their version arrays are left
@@ -36,16 +36,16 @@ empty, so `restoreVersions` is a no-op for them.
 
 ## Capturing
 
-UI: Session → Snapshots → **Capture**.
+UI: Sandbox → Snapshots → **Capture**.
 
 IPC:
 ```ts
 await api.snapshot.save({ sessionId, label });
 ```
 
-`captureFromSession` automatically inspects the session's runtime + the
+`captureFromSession` automatically inspects the sandbox's runtime + the
 project store to fill `programVersions` (active version per project program)
-and `programVersionOverrides` (current session pins).
+and `programVersionOverrides` (current sandbox pins).
 
 ## Restoring
 
@@ -55,8 +55,8 @@ await api.snapshot.restore({ sessionId, snapshotId, restoreVersions });
 
 | `restoreVersions` | Behaviour |
 |---|---|
-| `false` (default) | Restore only the LiteSVM payload. Program version selection (project active + session pins) untouched. |
-| `true` | Restore payload **and** apply the captured `programVersions` to `program.activeVersionId` for each program, then apply `programVersionOverrides` to the session. Runtime invalidated after. |
+| `false` (default) | Restore only the LiteSVM payload. Program version selection (project active + sandbox pins) untouched. |
+| `true` | Restore payload **and** apply the captured `programVersions` to `program.activeVersionId` for each program, then apply `programVersionOverrides` to the sandbox. Runtime invalidated after. |
 
 Use `restoreVersions: true` when reproducing a bug that's bound to a specific
 ELF combination. Use the default when you just want to rewind sandbox state

@@ -1,14 +1,20 @@
 import {
+  Activity,
   ArrowLeft,
+  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Clock,
+  Copy,
   Droplets,
+  FlaskConical,
   GitBranch,
+  Layers,
   ListChecks,
+  Pencil,
   Play,
   Plus,
   RefreshCcw,
@@ -16,6 +22,7 @@ import {
   Save,
   Send,
   SkipForward,
+  Timer,
   Trash2,
   X,
   XCircle,
@@ -24,6 +31,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
+import { FirstRunGuide } from '../components/FirstRunGuide';
+import { recordRun } from './AutomationsHome';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import { IxInspectButton } from './IxInspectModal';
@@ -46,6 +55,7 @@ type StepKind =
   | 'warpSlot'
   | 'expireBlockhash'
   | 'resetSession'
+  | 'resetSandbox'
   | 'setProgramVersion';
 type NumericOp = 'eq' | 'neq' | 'ge' | 'le' | 'gt' | 'lt';
 
@@ -97,6 +107,7 @@ type TestStep =
   | (BaseStep & { kind: 'warpSlot'; slot: string })
   | (BaseStep & { kind: 'expireBlockhash' })
   | (BaseStep & { kind: 'resetSession' })
+  | (BaseStep & { kind: 'resetSandbox' })
   | (BaseStep & {
       kind: 'setProgramVersion';
       programId: string;
@@ -169,8 +180,17 @@ const STEP_KINDS: StepKind[] = [
   'warpTime',
   'warpSlot',
   'expireBlockhash',
-  'resetSession',
+  'resetSandbox',
   'setProgramVersion',
+];
+
+/** Step kinds grouped by intent. Used by the "+ Add step" menu so newbies
+ *  can scan by category. Mirrors WorkflowsPanel.STEP_GROUPS. */
+const STEP_GROUPS: Array<{ label: string; kinds: StepKind[] }> = [
+  { label: 'Tx ops', kinds: ['tx', 'airdrop'] },
+  { label: 'Time ops', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
+  { label: 'Reset ops', kinds: ['resetSandbox'] },
+  { label: 'Version ops', kinds: ['setProgramVersion'] },
 ];
 
 const NUMERIC_OPS: NumericOp[] = ['eq', 'neq', 'ge', 'le', 'gt', 'lt'];
@@ -182,7 +202,8 @@ const prettyKind = (k: StepKind): string =>
     warpTime: 'Warp by time',
     warpSlot: 'Warp to slot',
     expireBlockhash: 'Expire blockhash',
-    resetSession: 'Reset session',
+    resetSession: 'Reset sandbox',
+    resetSandbox: 'Reset sandbox',
     setProgramVersion: 'Set program version',
   })[k];
 
@@ -199,6 +220,7 @@ const stepIcon = (k: StepKind, size = 13): ReactNode => {
     case 'expireBlockhash':
       return <RefreshCcw size={size} aria-hidden />;
     case 'resetSession':
+    case 'resetSandbox':
       return <RotateCcw size={size} aria-hidden />;
     case 'setProgramVersion':
       return <GitBranch size={size} aria-hidden />;
@@ -227,6 +249,7 @@ const defaultStep = (kind: StepKind): TestStep => {
     case 'expireBlockhash':
       return { ...base, kind };
     case 'resetSession':
+    case 'resetSandbox':
       return { ...base, kind };
     case 'setProgramVersion':
       return { ...base, kind, programId: '', versionId: null };
@@ -244,13 +267,35 @@ export function TestsPanel({
   project,
   activeSessionId,
   onSelectSession,
+  onOpenHelp,
+  pendingOpenId,
+  onConsumePending,
+  onBackToHome,
+  onPushRunRecord,
 }: {
   project: Project;
   activeSessionId: string | null;
   onSelectSession?: (id: string) => void;
+  onOpenHelp?: (skillId: string) => void;
+  /** Auto-open the matching test suite in the editor. Null = blank new. */
+  pendingOpenId?: string | null | undefined;
+  onConsumePending?: () => void;
+  /** Back from detail/editor → Automations home. */
+  onBackToHome?: () => void;
+  /** Push a run result up to App so it surfaces in the bottom console dock. */
+  onPushRunRecord?: (rec: {
+    kind: 'testSuite';
+    name: string;
+    pass: boolean;
+    body: JSX.Element;
+    subtitle: string;
+  }) => void;
 }): JSX.Element {
   const [suites, setSuites] = useState<TestSuite[]>([]);
   const [editing, setEditing] = useState<TestSuite | null>(null);
+  // Sidebar click opens a read-only detail pane; editor only opens when the
+  // user clicks Edit. Matches WorkflowsPanel pattern — no implicit dirty state.
+  const [viewing, setViewing] = useState<TestSuite | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
   const [ranIxs, setRanIxs] = useState<Map<string, TxIxLite[]>>(new Map());
   const [busy, setBusy] = useState(false);
@@ -267,6 +312,55 @@ export function TestsPanel({
   useEffect(() => {
     reload();
   }, [project.id]);
+
+  // Sidebar click → open detail view (not editor). Blank new (null) still
+  // jumps straight to editor since there's nothing to view yet.
+  useEffect(() => {
+    if (pendingOpenId === undefined) return;
+    if (pendingOpenId === null) {
+      void newSuite();
+      onConsumePending?.();
+      return;
+    }
+    const s = suites.find((x) => x.id === pendingOpenId);
+    if (s) {
+      setViewing(s);
+      setEditing(null);
+      onConsumePending?.();
+    }
+  }, [pendingOpenId, suites]);
+
+  // Keep viewing pane in sync. Returns prev reference when nothing meaningful
+  // changed so React skips re-render (avoids cascading updates).
+  useEffect(() => {
+    setViewing((prev) => {
+      if (!prev) return prev;
+      const live = suites.find((s) => s.id === prev.id);
+      if (!live) return null;
+      if (live === prev) return prev;
+      if (
+        live.name === prev.name &&
+        live.description === prev.description &&
+        live.updatedAt === prev.updatedAt &&
+        live.cases.length === prev.cases.length
+      ) {
+        return prev;
+      }
+      return live;
+    });
+  }, [suites]);
+
+  // External rename sync — keep editor's name/description in sync with the
+  // sidebar after an inline rename. Cases stay user-driven.
+  useEffect(() => {
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const live = suites.find((s) => s.id === prev.id);
+      if (!live) return prev;
+      if (live.name === prev.name && live.description === prev.description) return prev;
+      return { ...prev, name: live.name, description: live.description };
+    });
+  }, [suites]);
 
   const newSuite = async (): Promise<void> => {
     const name = await dialogs.prompt({
@@ -329,14 +423,14 @@ export function TestsPanel({
       return null;
     }
     const id = await dialogs.pickFromList({
-      title: 'Select session',
-      message: 'Pick which session to run against.',
+      title: 'Select sandbox',
+      message: 'Pick which sandbox to run against.',
       items: sessions.map((s) => ({
         id: s.id,
         label: s.name + (s.isDefault ? ' (default)' : ''),
         hint: `${s.accountCount} accounts`,
       })),
-      emptyMessage: 'No sessions in this project. Create one from the sidebar.',
+      emptyMessage: 'No sandboxes in this project. Create one from the sidebar.',
       confirmText: 'Run',
     });
     if (id) onSelectSession?.(id);
@@ -372,6 +466,14 @@ export function TestsPanel({
         ...(!target.id && { cases: target.cases }),
       });
       setResult(r);
+      if (target.id) recordRun('testSuite', target.id);
+      onPushRunRecord?.({
+        kind: 'testSuite',
+        name: target.name || '(unnamed)',
+        pass: r.pass,
+        subtitle: `${r.cases.filter((c) => c.pass).length}/${r.cases.length} cases · ${r.completedAt - r.startedAt} ms`,
+        body: <RunResultView result={r} ixByStep={ixMap} project={project} />,
+      });
       const passed = r.cases.filter((c) => c.pass).length;
       if (r.pass) toast.success(`all ${r.cases.length} cases passed`);
       else toast.error(`${passed}/${r.cases.length} cases passed (see results)`);
@@ -390,7 +492,10 @@ export function TestsPanel({
         busy={busy}
         onChange={setEditing}
         onSave={save}
-        onCancel={() => setEditing(null)}
+        onCancel={() => {
+          setEditing(null);
+          onBackToHome?.();
+        }}
         onRun={() => void run()}
         result={result}
         ranIxs={ranIxs}
@@ -399,72 +504,335 @@ export function TestsPanel({
     );
   }
 
+  if (viewing) {
+    return (
+      <SuiteDetail
+        suite={viewing}
+        busy={busy}
+        onEdit={() => {
+          setEditing(viewing);
+          setViewing(null);
+        }}
+        onRun={() => void run(viewing)}
+        onDuplicate={() => {
+          const clone: TestSuite = {
+            ...viewing,
+            id: '',
+            name: `${viewing.name} (copy)`,
+            cases: viewing.cases.map((c) => ({
+              ...c,
+              id: crypto.randomUUID(),
+              steps: c.steps.map((s) => ({ ...s, id: crypto.randomUUID() })),
+            })),
+            updatedAt: Date.now(),
+          };
+          setEditing(clone);
+          setViewing(null);
+        }}
+        onDelete={async () => {
+          const ok = await dialogs.confirm({
+            title: `Delete "${viewing.name}"?`,
+            message: 'Permanent. The test suite JSON is removed from disk.',
+            danger: true,
+            confirmText: 'Delete',
+          });
+          if (!ok) return;
+          await remove(viewing.id);
+          setViewing(null);
+        }}
+        onBack={() => {
+          setViewing(null);
+          onBackToHome?.();
+        }}
+        result={result}
+        ranIxs={ranIxs}
+        project={project}
+      />
+    );
+  }
+
+  // No specific suite open — bounce to home so user sees recent runs / CTAs.
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="m-0">Test Suites</h2>
-          <span className="text-2xs text-text-subtle">{suites.length} saved</span>
+    <div className="entity-detail">
+      <Empty
+        size="sm"
+        title="Pick a test suite"
+        description="Choose one from the sidebar, or go back to recent runs."
+        action={
+          <Button variant="primary" size="sm" onClick={() => onBackToHome?.()}>
+            Back to Automations
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Institution-level read-only detail view for a test suite. Hero header +
+ * KPI tiles + last-run banner with pass/fail metrics + case cards. Edit gated
+ * behind explicit "Edit" button.
+ */
+function SuiteDetail({
+  suite,
+  busy,
+  onEdit,
+  onRun,
+  onDuplicate,
+  onDelete,
+  onBack,
+  result,
+  ranIxs,
+  project,
+}: {
+  suite: TestSuite;
+  busy: boolean;
+  onEdit: () => void;
+  onRun: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onBack: () => void;
+  result: RunResult | null;
+  ranIxs: Map<string, TxIxLite[]>;
+  project: Project;
+}): JSX.Element {
+  const totalSteps = suite.cases.reduce((n, c) => n + c.steps.length, 0);
+  const totalExpectations = suite.cases.reduce(
+    (n, c) =>
+      n +
+      c.steps.reduce(
+        (m, s) =>
+          m + (s.txExpectations?.length ?? 0) + (s.accountExpectations?.length ?? 0),
+        0,
+      ),
+    0,
+  );
+  const casePass = result ? result.cases.filter((c) => c.pass).length : 0;
+  const totalDuration = result
+    ? result.cases.reduce(
+        (n, c) => n + c.steps.reduce((m, s) => m + s.durationMs, 0),
+        0,
+      )
+    : 0;
+  const passRate =
+    result && result.cases.length > 0
+      ? Math.round((casePass / result.cases.length) * 100)
+      : null;
+
+  return (
+    <div className="entity-detail">
+      <div className="entity-detail-breadcrumb">
+        <IconButton
+          icon={<ArrowLeft size={13} />}
+          label="Back"
+          size="sm"
+          variant="ghost"
+          onClick={onBack}
+        />
+        <span className="entity-detail-crumb">Automations</span>
+        <ChevronRight size={11} aria-hidden className="entity-detail-crumb-sep" />
+        <span className="entity-detail-crumb">Test Suites</span>
+        <ChevronRight size={11} aria-hidden className="entity-detail-crumb-sep" />
+        <span className="entity-detail-crumb entity-detail-crumb-active">
+          {suite.name || '(unnamed)'}
+        </span>
+      </div>
+
+      <div className="entity-detail-hero">
+        <div className="entity-detail-hero-main">
+          <span className="entity-detail-hero-icon entity-hero-icon-test" aria-hidden>
+            <FlaskConical size={22} />
+          </span>
+          <div className="entity-detail-hero-text">
+            <div className="entity-detail-hero-title-row">
+              <h1 className="entity-detail-hero-title">{suite.name || '(unnamed)'}</h1>
+              <span className="entity-pill entity-pill-suite">Test Suite</span>
+            </div>
+            {suite.description ? (
+              <p className="entity-detail-hero-desc">{suite.description}</p>
+            ) : (
+              <p className="entity-detail-hero-desc entity-detail-hero-desc-muted">
+                No description.
+              </p>
+            )}
+          </div>
         </div>
-        <div className="text-xs text-text-muted mb-3">
-          Group multiple testcases. Each case runs all steps regardless of tx
-          failures — failed tx never halts the suite. Use expectations to assert
-          outcomes (success/failure, error text, CU range, account state).
-        </div>
-        <div>
-          <Button variant="primary" size="sm" onClick={() => void newSuite()}>
-            <Plus size={12} aria-hidden /> New test suite
+
+        <div className="entity-detail-hero-actions">
+          <Button variant="primary" size="md" onClick={onRun} disabled={busy}>
+            <Play size={13} aria-hidden /> Run
+          </Button>
+          <Button variant="outline" size="md" onClick={onEdit} disabled={busy}>
+            <Pencil size={13} aria-hidden /> Edit
+          </Button>
+          <Button variant="ghost" size="md" onClick={onDuplicate} disabled={busy}>
+            <Copy size={13} aria-hidden /> Duplicate
+          </Button>
+          <Button variant="ghost" size="md" onClick={onDelete} disabled={busy}>
+            <Trash2 size={13} aria-hidden />
           </Button>
         </div>
-        {suites.length === 0 ? (
-          <div className="mt-3">
-            <Empty
-              size="sm"
-              title="No test suites yet"
-              description="Create one to assert program behavior across multiple scenarios."
-            />
+      </div>
+
+      <div className="entity-detail-kpis">
+        <KpiTile
+          icon={<Layers size={14} />}
+          label="Cases"
+          value={String(suite.cases.length)}
+        />
+        <KpiTile
+          icon={<Activity size={14} />}
+          label="Steps"
+          value={String(totalSteps)}
+        />
+        <KpiTile
+          icon={<ListChecks size={14} />}
+          label="Expectations"
+          value={String(totalExpectations)}
+        />
+        <KpiTile
+          icon={<CheckCircle2 size={14} />}
+          label="Last run"
+          value={passRate === null ? '—' : `${passRate}% pass`}
+          tone={passRate === null ? 'neutral' : passRate === 100 ? 'good' : 'bad'}
+        />
+      </div>
+
+      {result && (
+        <div
+          className={`entity-runbanner ${
+            result.cases.every((c) => c.pass) ? 'ok' : 'fail'
+          }`}
+        >
+          <span className="entity-runbanner-icon" aria-hidden>
+            {result.cases.every((c) => c.pass) ? (
+              <CheckCircle2 size={16} />
+            ) : (
+              <XCircle size={16} />
+            )}
+          </span>
+          <div className="entity-runbanner-body">
+            <div className="entity-runbanner-title">
+              {casePass}/{result.cases.length} case{result.cases.length === 1 ? '' : 's'}{' '}
+              {result.cases.every((c) => c.pass) ? 'passed' : 'with failures'}
+            </div>
+            <div className="entity-runbanner-sub">
+              {totalDuration} ms · ran at{' '}
+              {new Date(result.startedAt).toISOString().slice(11, 19)} UTC
+            </div>
           </div>
+        </div>
+      )}
+
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Cases</h3>
+          <span className="entity-detail-section-meta">
+            {suite.cases.length} case{suite.cases.length === 1 ? '' : 's'} · never halts
+            on fail
+          </span>
+        </div>
+        {suite.cases.length === 0 ? (
+          <Empty
+            size="sm"
+            title="No cases yet"
+            description="Open the editor to add a test case."
+            action={
+              <Button variant="primary" size="sm" onClick={onEdit} disabled={busy}>
+                <Pencil size={11} aria-hidden /> Edit
+              </Button>
+            }
+          />
         ) : (
-          <div className="mt-3 rounded-md border border-border overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
-                <tr>
-                  <th className="text-left font-medium px-3 py-1.5">Name</th>
-                  <th className="text-left font-medium px-3 py-1.5 w-16">Cases</th>
-                  <th className="text-left font-medium px-3 py-1.5">Updated</th>
-                  <th className="px-3 py-1.5 w-40" />
-                </tr>
-              </thead>
-              <tbody>
-                {suites.map((s) => (
-                  <tr key={s.id} className="border-t border-border hover:bg-surface-1/50">
-                    <td className="px-3 py-1.5 text-text">{s.name}</td>
-                    <td className="px-3 py-1.5 text-text-muted">{s.cases.length}</td>
-                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                      {new Date(s.updatedAt).toISOString().slice(0, 19)}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="outline" size="xs" onClick={() => void run(s)}>
-                          <Play size={11} aria-hidden /> Run
-                        </Button>
-                        <Button variant="ghost" size="xs" onClick={() => setEditing(s)}>
-                          Edit
-                        </Button>
-                        <Button variant="danger" size="xs" onClick={() => void remove(s.id)}>
-                          <Trash2 size={11} aria-hidden />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className="entity-case-grid">
+            {suite.cases.map((c, idx) => {
+              const caseResult = result?.cases.find((cr) => cr.caseId === c.id);
+              const expCount = c.steps.reduce(
+                (n, s) =>
+                  n +
+                  (s.txExpectations?.length ?? 0) +
+                  (s.accountExpectations?.length ?? 0),
+                0,
+              );
+              return (
+                <li key={c.id} className="entity-case-card">
+                  <div className="entity-case-card-head">
+                    <span className="entity-case-idx">#{idx + 1}</span>
+                    <span className="entity-case-name">{c.name || '(unnamed)'}</span>
+                    {caseResult ? (
+                      <span
+                        className={`entity-case-status ${caseResult.pass ? 'ok' : 'fail'}`}
+                      >
+                        {caseResult.pass ? (
+                          <CheckCircle2 size={11} aria-hidden />
+                        ) : (
+                          <XCircle size={11} aria-hidden />
+                        )}
+                        {caseResult.pass ? 'pass' : 'fail'}
+                      </span>
+                    ) : null}
+                  </div>
+                  {c.description && (
+                    <p className="entity-case-desc">{c.description}</p>
+                  )}
+                  <div className="entity-case-meta">
+                    <span>
+                      <Activity size={10} aria-hidden /> {c.steps.length} step
+                      {c.steps.length === 1 ? '' : 's'}
+                    </span>
+                    <span>
+                      <ListChecks size={10} aria-hidden /> {expCount} expectation
+                      {expCount === 1 ? '' : 's'}
+                    </span>
+                    {c.resetBefore && (
+                      <span>
+                        <RotateCcw size={10} aria-hidden /> reset before
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         )}
       </div>
 
-      {result && <RunResultView result={result} ixByStep={ranIxs} project={project} />}
+      <div className="entity-detail-footchips">
+        <span className="entity-footchip">
+          <Calendar size={11} aria-hidden /> Created{' '}
+          {new Date(suite.createdAt).toISOString().slice(0, 19).replace('T', ' ')}
+        </span>
+        <span className="entity-footchip">
+          <Clock size={11} aria-hidden /> Updated{' '}
+          {new Date(suite.updatedAt).toISOString().slice(0, 19).replace('T', ' ')}
+        </span>
+      </div>
+
+    </div>
+  );
+}
+
+/** Single KPI metric tile. Mirrors the WorkflowsPanel variant. */
+function KpiTile({
+  icon,
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'good' | 'bad';
+}): JSX.Element {
+  return (
+    <div className={`entity-kpi tone-${tone}`}>
+      <div className="entity-kpi-head">
+        <span className="entity-kpi-icon" aria-hidden>
+          {icon}
+        </span>
+        <span className="entity-kpi-label">{label}</span>
+      </div>
+      <div className="entity-kpi-value">{value}</div>
     </div>
   );
 }
@@ -500,87 +868,184 @@ function SuiteEditor({
     update({ cases: suite.cases.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   };
 
+  const isNew = !suite.id;
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <IconButton
-              icon={<ArrowLeft size={14} />}
-              label="Back"
-              size="sm"
-              variant="ghost"
-              onClick={onCancel}
-            />
-            <h2 className="m-0">{suite.id ? 'Edit test suite' : 'New test suite'}</h2>
-          </div>
-          <div className="flex gap-1.5">
-            <Button variant="outline" size="sm" onClick={onRun} disabled={busy}>
-              <Play size={12} aria-hidden /> Run
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => void onSave()} disabled={busy}>
-              {busy ? (
-                <>
-                  <Spinner size={12} /> Saving
-                </>
-              ) : (
-                <>
-                  <Save size={12} aria-hidden /> Save
-                </>
-              )}
-            </Button>
-          </div>
+    <div className="entity-detail entity-editor">
+      <div className="entity-editor-toolbar">
+        <div className="entity-editor-toolbar-left">
+          <IconButton
+            icon={<ArrowLeft size={13} />}
+            label="Back"
+            size="sm"
+            variant="ghost"
+            onClick={onCancel}
+          />
+          <span className="entity-detail-crumb">Test Suites</span>
+          <ChevronRight size={11} className="entity-detail-crumb-sep" aria-hidden />
+          <span className="entity-detail-crumb entity-detail-crumb-active">
+            {suite.id ? 'Edit' : 'New'}
+          </span>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-3">
-          <Field label="Name">
-            <Input value={suite.name} onChange={(e) => update({ name: e.target.value })} />
-          </Field>
-          <Field label="Description">
-            <Input
-              value={suite.description}
-              onChange={(e) => update({ description: e.target.value })}
-              placeholder="What does this test suite verify?"
-            />
-          </Field>
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-border">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="m-0">
-              Testcases <span className="text-text-muted">({suite.cases.length})</span>
-            </h2>
-            <Button variant="ghost" size="xs" onClick={addCase}>
-              <Plus size={11} aria-hidden /> Add testcase
-            </Button>
-          </div>
-
-          {suite.cases.length === 0 ? (
-            <Empty size="sm" title="No testcases yet" description="Add a testcase." />
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {suite.cases.map((tc, idx) => (
-                <CaseEditor
-                  key={tc.id}
-                  index={idx}
-                  testCase={tc}
-                  project={project}
-                  suggestions={suggestions}
-                  onPatch={(patch) => updateCase(tc.id, patch)}
-                  onRemove={() => removeCase(tc.id)}
-                />
-              ))}
-            </ul>
-          )}
+        <div className="entity-editor-toolbar-right">
+          <Button variant="outline" size="sm" onClick={onRun} disabled={busy}>
+            <Play size={12} aria-hidden /> Run
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void onSave()} disabled={busy}>
+            {busy ? (
+              <>
+                <Spinner size={12} /> Saving
+              </>
+            ) : (
+              <>
+                <Save size={12} aria-hidden /> Save
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
-      {result && <RunResultView result={result} ixByStep={ranIxs} project={project} />}
+      {isNew && (
+        <div className="entity-detail-section">
+          <FirstRunGuide kind="testSuite" />
+        </div>
+      )}
+
+      <div className="entity-detail-section">
+        <div className="entity-editor-name-row">
+          <input
+            type="text"
+            className="entity-editor-name-input"
+            value={suite.name}
+            onChange={(e) => update({ name: e.target.value })}
+            placeholder="Untitled test suite"
+            autoFocus
+          />
+          <span className="entity-pill entity-pill-suite">Test Suite</span>
+        </div>
+        <input
+          type="text"
+          className="entity-editor-desc-input"
+          value={suite.description}
+          onChange={(e) => update({ description: e.target.value })}
+          placeholder="What does this test suite verify?"
+        />
+      </div>
+
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">
+            Test cases <span className="entity-editor-count">({suite.cases.length})</span>
+          </h3>
+          <Button variant="ghost" size="xs" onClick={addCase}>
+            <Plus size={11} aria-hidden /> Add case
+          </Button>
+        </div>
+        {suite.cases.length === 0 ? (
+          <Empty
+            size="sm"
+            title="No test cases yet"
+            description="Add a case to assert behavior."
+            action={
+              <Button variant="primary" size="sm" onClick={addCase}>
+                <Plus size={12} aria-hidden /> Add case
+              </Button>
+            }
+          />
+        ) : (
+          <SuiteCases
+            cases={suite.cases}
+            project={project}
+            suggestions={suggestions}
+            onPatch={updateCase}
+            onRemove={removeCase}
+            lastResult={result}
+          />
+        )}
+      </div>
+
     </div>
   );
 }
 
-// Removed earlier duplicate; pass-through wired above.
+function SuiteCases({
+  cases,
+  project,
+  suggestions,
+  onPatch,
+  onRemove,
+  lastResult,
+}: {
+  cases: TestCase[];
+  project: Project;
+  suggestions: import('../components/useAddressSuggestions').AddressSuggestion[];
+  onPatch: (id: string, patch: Partial<TestCase>) => void;
+  onRemove: (id: string) => void;
+  lastResult: RunResult | null;
+}): JSX.Element {
+  const [activeId, setActiveId] = useState<string>(cases[0]?.id ?? '');
+  // If active case got deleted, fall back to first remaining.
+  useEffect(() => {
+    if (!cases.some((c) => c.id === activeId) && cases[0]) setActiveId(cases[0].id);
+  }, [cases, activeId]);
+
+  // Per-case pass/fail badge from the last run (if any).
+  const caseStatus = (id: string): 'pass' | 'fail' | null => {
+    const r = lastResult?.cases.find((c) => c.caseId === id);
+    if (!r) return null;
+    return r.pass ? 'pass' : 'fail';
+  };
+
+  const activeIdx = cases.findIndex((c) => c.id === activeId);
+  const active = cases[activeIdx >= 0 ? activeIdx : 0];
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Horizontal tab strip — one chip per case, click to switch. */}
+      <div className="flex flex-wrap gap-1 border-b border-border pb-2 -mx-1 px-1">
+        {cases.map((tc, idx) => {
+          const isActive = tc.id === activeId;
+          const status = caseStatus(tc.id);
+          return (
+            <button
+              key={tc.id}
+              type="button"
+              onClick={() => setActiveId(tc.id)}
+              className={[
+                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-2xs transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+                isActive
+                  ? 'bg-accent/15 text-accent border border-accent/40'
+                  : 'bg-surface-0 text-text-muted border border-border hover:text-text hover:bg-surface-1',
+              ].join(' ')}
+              title={tc.description || tc.name}
+            >
+              <span className="font-mono text-text-subtle">#{idx + 1}</span>
+              <span className="truncate max-w-[160px]">{tc.name}</span>
+              {status === 'pass' && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-label="pass" />
+              )}
+              {status === 'fail' && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger" aria-label="fail" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {active && (
+        <CaseEditor
+          key={active.id}
+          index={activeIdx}
+          testCase={active}
+          project={project}
+          suggestions={suggestions}
+          onPatch={(patch) => onPatch(active.id, patch)}
+          onRemove={() => onRemove(active.id)}
+        />
+      )}
+    </div>
+  );
+}
 
 function CaseEditor({
   index,
@@ -602,6 +1067,21 @@ function CaseEditor({
     onPatch({ steps: [...testCase.steps, defaultStep(kind)] });
   const removeStep = (id: string): void =>
     onPatch({ steps: testCase.steps.filter((s) => s.id !== id) });
+  // Clone a step under the source step, generating a fresh id so it can be
+  // edited / reordered independently.
+  const duplicateStep = (id: string): void => {
+    const idx = testCase.steps.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    const src = testCase.steps[idx]!;
+    const clone = {
+      ...src,
+      id: crypto.randomUUID(),
+      name: `${src.name} (copy)`,
+    } as TestStep;
+    const next = testCase.steps.slice();
+    next.splice(idx + 1, 0, clone);
+    onPatch({ steps: next });
+  };
   const moveStep = (id: string, dir: -1 | 1): void => {
     const i = testCase.steps.findIndex((s) => s.id === id);
     if (i < 0) return;
@@ -649,7 +1129,7 @@ function CaseEditor({
         />
         <label
           className="inline-flex items-center gap-1 text-2xs text-text-muted shrink-0 select-none cursor-pointer"
-          title="Reset session state before this case (fresh slate)"
+          title="Reset sandbox state before this case (fresh slate)"
         >
           <input
             type="checkbox"
@@ -678,17 +1158,22 @@ function CaseEditor({
             />
           </Field>
 
-          <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
-            <div className="text-2xs text-text-subtle uppercase tracking-wider">
-              Steps · runs top to bottom, never halts on fail
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {STEP_KINDS.map((k) => (
-                <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
-                  {stepIcon(k, 11)} {prettyKind(k)}
-                </Button>
-              ))}
-            </div>
+          <div className="mt-3 text-2xs text-text-subtle uppercase tracking-wider">
+            Steps · runs top to bottom, never halts on fail
+          </div>
+          <div className="step-add-bar mt-2">
+            {STEP_GROUPS.map((g) => (
+              <div key={g.label} className="step-add-group">
+                <div className="step-add-group-label">{g.label}</div>
+                <div className="step-add-group-buttons">
+                  {g.kinds.map((k) => (
+                    <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
+                      {stepIcon(k, 11)} {prettyKind(k)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
           {testCase.steps.length === 0 ? (
@@ -736,6 +1221,13 @@ function CaseEditor({
                       variant="ghost"
                       disabled={idx === testCase.steps.length - 1}
                       onClick={() => moveStep(step.id, 1)}
+                    />
+                    <IconButton
+                      icon={<Copy size={12} />}
+                      label="Duplicate step"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => duplicateStep(step.id)}
                     />
                     <IconButton
                       icon={<X size={12} />}
@@ -830,7 +1322,11 @@ function StepBody({
       </Field>
     );
   }
-  if (step.kind === 'expireBlockhash' || step.kind === 'resetSession') {
+  if (
+    step.kind === 'expireBlockhash' ||
+    step.kind === 'resetSession' ||
+    step.kind === 'resetSandbox'
+  ) {
     return <div className="text-2xs text-text-subtle italic">no parameters</div>;
   }
   if (step.kind === 'setProgramVersion') {
@@ -854,7 +1350,7 @@ function SetProgramVersionBody({
   return (
     <div className="flex flex-col gap-3">
       <div className="text-2xs text-text-muted">
-        Switches the session-level program-version pin. Persistent — all
+        Switches the sandbox-level program-version pin. Persistent — all
         subsequent tx steps use the new version until another setProgramVersion
         step (or end of run). Use V1 → V2 then V2 → V1 to flip-test upgrade /
         downgrade behavior.
@@ -1110,7 +1606,7 @@ function TxStepBody({
                       } as Partial<TestStep>);
                     }}
                   >
-                    <option value="">(follow session)</option>
+                    <option value="">(follow sandbox)</option>
                     {prog.versions.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.label}
@@ -1502,36 +1998,40 @@ function RunResultView({
   project: Project;
 }): JSX.Element {
   const passed = result.cases.filter((c) => c.pass).length;
+  const failed = result.cases.length - passed;
+  const totalMs = result.completedAt - result.startedAt;
+  const totalSteps = result.cases.reduce((n, c) => n + c.steps.length, 0);
+  const stepsPassed = result.cases.reduce(
+    (n, c) => n + c.steps.filter((s) => s.pass).length,
+    0,
+  );
+
   return (
-    <div className="panel">
-      <header className="flex items-start gap-3 mb-3 flex-wrap">
-        <span
-          className={[
-            'inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0',
-            result.pass ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger',
-          ].join(' ')}
-          aria-hidden
-        >
+    <div className="run-result">
+      <div className={`run-result-banner ${result.pass ? 'ok' : 'fail'}`}>
+        <span className="run-result-banner-icon" aria-hidden>
           {result.pass ? (
-            <CheckCircle2 size={16} strokeWidth={2.5} />
+            <CheckCircle2 size={18} strokeWidth={2.5} />
           ) : (
-            <XCircle size={16} strokeWidth={2.5} />
+            <XCircle size={18} strokeWidth={2.5} />
           )}
         </span>
-        <div className="min-w-0">
-          <h2 className="m-0 text-md font-semibold">
-            Suite run ·{' '}
-            <span className={result.pass ? 'text-success' : 'text-danger'}>
-              {result.pass ? 'PASSED' : 'FAILED'}
-            </span>
-          </h2>
-          <div className="text-xs text-text-muted mt-0.5">
-            {passed}/{result.cases.length} cases ·{' '}
-            <span className="font-mono">{result.completedAt - result.startedAt} ms</span>
+        <div className="run-result-banner-body">
+          <div className="run-result-banner-title">
+            {result.pass ? 'Test suite passed' : 'Test suite has failures'}
+          </div>
+          <div className="run-result-banner-sub">
+            {passed}/{result.cases.length} cases · {stepsPassed}/{totalSteps} steps
           </div>
         </div>
-      </header>
-      <ul className="flex flex-col gap-2">
+        <div className="run-result-banner-stats">
+          <RunStat label="Cases" value={`${passed}/${result.cases.length}`} tone={failed > 0 ? 'bad' : 'good'} />
+          <RunStat label="Steps" value={`${stepsPassed}/${totalSteps}`} />
+          <RunStat label="Duration" value={`${totalMs} ms`} />
+        </div>
+      </div>
+
+      <ol className="run-result-cases">
         {result.cases.map((c, i) => (
           <CaseResultView
             key={c.caseId}
@@ -1541,7 +2041,24 @@ function RunResultView({
             project={project}
           />
         ))}
-      </ul>
+      </ol>
+    </div>
+  );
+}
+
+function RunStat({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'good' | 'bad';
+}): JSX.Element {
+  return (
+    <div className={`run-stat tone-${tone}`}>
+      <span className="run-stat-label">{label}</span>
+      <span className="run-stat-value">{value}</span>
     </div>
   );
 }
@@ -1560,35 +2077,26 @@ function CaseResultView({
   const [open, setOpen] = useState(!value.pass);
   const passed = value.steps.filter((s) => s.pass).length;
   return (
-    <li className="rounded-md border border-border overflow-hidden">
+    <li className={`run-case${value.pass ? '' : ' fail'}${open ? ' open' : ''}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={[
-          'w-full flex items-center gap-2 px-3 py-2 text-left bg-transparent border-0',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
-          'cursor-pointer hover:bg-surface-1/40',
-        ].join(' ')}
+        className="run-case-head"
       >
-        <span className="w-3.5 text-text-muted inline-flex justify-center">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span className="run-step-chev">
+          {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </span>
-        <Badge size="sm" variant="default" className="font-mono">
-          #{index}
-        </Badge>
-        <span className="flex-1 min-w-0 truncate text-xs text-text">{value.name}</span>
-        <span
-          className={['shrink-0', value.pass ? 'text-success' : 'text-danger'].join(' ')}
-          aria-label={value.pass ? 'pass' : 'fail'}
-        >
-          {value.pass ? <Check size={13} /> : <XCircle size={13} />}
+        <span className="run-step-idx">#{index}</span>
+        <span className="run-case-name">{value.name}</span>
+        <span className="run-case-stats font-mono">
+          {passed}/{value.steps.length} steps · {value.completedAt - value.startedAt} ms
         </span>
-        <span className="font-mono text-2xs text-text-subtle min-w-[80px] text-right">
-          {passed}/{value.steps.length} steps · {value.completedAt - value.startedAt}ms
+        <span className={`run-step-status ${value.pass ? 'ok' : 'fail'}`}>
+          {value.pass ? <Check size={12} /> : <XCircle size={12} />}
         </span>
       </button>
       {open && (
-        <ul className="border-t border-border">
+        <ul className="run-case-steps">
           {value.steps.map((s, i) => (
             <StepResultRow
               key={s.stepId}
@@ -1619,76 +2127,54 @@ function StepResultRow({
   const hasLogs = !!(step.tx && step.tx.logs.length > 0);
   const expandable = hasLogs || !!step.errorMessage || step.expectations.length > 0;
   return (
-    <li className="border-b border-border last:border-b-0">
+    <li className={`run-step${step.pass ? '' : ' fail'}${open ? ' open' : ''}`}>
       <button
         type="button"
         disabled={!expandable}
         onClick={() => expandable && setOpen((v) => !v)}
-        className={[
-          'w-full flex items-center gap-2 px-3 py-2 text-left bg-transparent border-0',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
-          expandable ? 'cursor-pointer hover:bg-surface-1/40' : 'cursor-default',
-        ].join(' ')}
+        className="run-step-head"
       >
-        <span className="w-3.5 text-text-muted inline-flex justify-center">
+        <span className="run-step-chev">
           {expandable ? (
             open ? (
-              <ChevronDown size={12} />
+              <ChevronDown size={11} />
             ) : (
-              <ChevronRight size={12} />
+              <ChevronRight size={11} />
             )
           ) : (
-            <span className="w-1 h-1 rounded-full bg-text-subtle" />
+            <span className="run-step-dot" />
           )}
         </span>
-        <Badge size="sm" variant="default" className="font-mono">
-          #{index}
-        </Badge>
-        <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted shrink-0"
-          aria-hidden
-        >
+        <span className="run-step-idx">#{index}</span>
+        <span className={`run-step-icon kind-${step.kind}`} aria-hidden>
           {stepIcon(step.kind, 11)}
         </span>
-        <Badge size="sm" variant="accent">
-          {prettyKind(step.kind)}
-        </Badge>
-        <span className="flex-1 min-w-0 truncate text-xs text-text">{step.name}</span>
+        <span className="run-step-kind">{prettyKind(step.kind)}</span>
+        <span className="run-step-name">{step.name}</span>
         {step.txOk !== null && (
-          <span
-            className={[
-              'shrink-0 text-2xs px-1.5 py-0.5 rounded',
-              step.txOk ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger',
-            ].join(' ')}
-          >
+          <span className={`run-step-tx-pill ${step.txOk ? 'ok' : 'fail'}`}>
             tx {step.txOk ? 'ok' : 'failed'}
           </span>
         )}
-        <span
-          className={['shrink-0', step.pass ? 'text-success' : 'text-danger'].join(' ')}
-          aria-label={step.pass ? 'pass' : 'fail'}
-        >
-          {step.pass ? <Check size={13} /> : <XCircle size={13} />}
+        <span className="run-step-stats">
+          {step.tx && <span className="run-step-cu font-mono">cu {step.tx.cuConsumed}</span>}
+          <span className="run-step-dur font-mono">{step.durationMs.toFixed(1)} ms</span>
         </span>
-        <span className="font-mono text-2xs text-text-subtle min-w-[70px] text-right">
-          {step.tx ? `cu ${step.tx.cuConsumed} · ` : ''}
-          {step.durationMs.toFixed(1)}ms
+        <span className={`run-step-status ${step.pass ? 'ok' : 'fail'}`}>
+          {step.pass ? <Check size={12} /> : <XCircle size={12} />}
         </span>
       </button>
 
       {open && expandable && (
-        <div className="px-3 pb-3 pl-10 flex flex-col gap-2">
+        <div className="run-step-body">
           {ixs && ixs.length > 0 && (
-            <div className="rounded border border-border bg-bg p-2">
-              <div className="text-2xs text-text-subtle mb-1">Instructions sent</div>
-              <ol className="flex flex-col gap-1">
+            <div className="run-step-ixs">
+              <div className="run-step-ixs-label">Instructions sent</div>
+              <ol className="run-step-ixs-list">
                 {ixs.map((ix, i) => (
-                  <li
-                    key={i}
-                    className="text-2xs text-text-muted flex items-center gap-2"
-                  >
-                    <span className="font-mono text-text-subtle">{i + 1}.</span>
-                    <span className="flex-1 min-w-0 truncate">
+                  <li key={i} className="run-step-ix">
+                    <span className="run-step-ix-idx font-mono">{i + 1}.</span>
+                    <span className="run-step-ix-name">
                       <span className="text-accent">{ix.instructionName}</span>{' '}
                       <span className="text-text-subtle">on</span>{' '}
                       <span className="font-mono">{ix.programLabel}</span>
@@ -1700,32 +2186,20 @@ function StepResultRow({
             </div>
           )}
           {step.errorMessage && (
-            <div className="text-2xs text-danger break-words font-mono">
-              error: {step.errorMessage}
+            <div className="run-step-error font-mono">
+              <XCircle size={11} aria-hidden /> {step.errorMessage}
             </div>
           )}
           {step.expectations.length > 0 && (
-            <ul className="flex flex-col gap-1">
+            <ul className="run-step-exps">
               {step.expectations.map((x, i) => (
-                <li
-                  key={i}
-                  className={[
-                    'flex items-start gap-2 text-2xs rounded px-2 py-1 border',
-                    x.pass
-                      ? 'border-success/30 bg-success/5 text-text'
-                      : 'border-danger/30 bg-danger/5 text-text',
-                  ].join(' ')}
-                >
-                  <span
-                    className={['shrink-0 mt-0.5', x.pass ? 'text-success' : 'text-danger'].join(
-                      ' ',
-                    )}
-                  >
+                <li key={i} className={`run-step-exp ${x.pass ? 'ok' : 'fail'}`}>
+                  <span className="run-step-exp-icon">
                     {x.pass ? <Check size={11} /> : <XCircle size={11} />}
                   </span>
-                  <div className="min-w-0">
-                    <div className="font-medium">{x.description}</div>
-                    <div className="font-mono text-text-muted">
+                  <div className="run-step-exp-body">
+                    <div className="run-step-exp-desc">{x.description}</div>
+                    <div className="run-step-exp-meta font-mono">
                       actual: {x.actual ?? '(null)'} · expected: {x.expected}
                     </div>
                   </div>
@@ -1734,9 +2208,7 @@ function StepResultRow({
             </ul>
           )}
           {hasLogs && (
-            <pre className="font-mono text-2xs bg-bg border border-border rounded p-2 max-h-[260px] overflow-auto m-0 whitespace-pre-wrap">
-              {step.tx!.logs.join('\n')}
-            </pre>
+            <pre className="run-step-logs font-mono">{step.tx!.logs.join('\n')}</pre>
           )}
         </div>
       )}

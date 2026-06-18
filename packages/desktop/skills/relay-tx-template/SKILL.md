@@ -88,8 +88,8 @@ These are passed at `tx.simulate` / `tx.send` time, not baked into the JSON:
   match `isSigner: true` accounts other than the payer. Backend dedupes the
   payer from the list before `signTransaction(tx, signers)`.
 - `programVersionOverrides: { [programId]: versionId }` — pin a specific
-  program version for this single run. Session pin restored after. Resolution
-  order: explicit override → session pin → project active version.
+  program version for this single run. Sandbox pin restored after. Resolution
+  order: explicit override → sandbox pin → project active version.
 
 ## Common edits
 

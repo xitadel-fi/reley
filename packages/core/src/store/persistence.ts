@@ -88,6 +88,8 @@ interface ManifestV2 {
   rpcEndpointId: string;
   sessionIds: string[];
   keypairRefs: string[];
+  /** Optional folder tree for grouping templates + programs in the sidebar. */
+  folders?: Project['folders'];
   createdAt: number;
   lastOpenedAt: number;
   pinned: boolean;

@@ -1,28 +1,37 @@
 import {
   Activity,
-  Camera,
+  Bookmark,
   ChevronDown,
   ChevronRight,
   Command,
+  ChevronUp,
   EyeOff,
+  FlaskConical,
   FolderOpen,
-  History,
+  HelpCircle,
   Info,
-  KeyRound,
-  LayoutGrid,
+  LayoutDashboard,
   LayoutList,
+  ListChecks,
   ListTree,
   Minus,
   Moon,
+  PanelBottomClose,
+  PanelBottomOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Plus,
+  Rewind,
   Search,
+  Send,
   Square,
   Sun,
   Trash2,
+  Wallet,
+  Workflow as WorkflowIcon,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -32,6 +41,7 @@ import { ContextMenu, type MenuItem, useContextMenu } from './components/Context
 import { Modal } from './components/Modal';
 import { ConfirmModal, PromptModal, type PromptOptions } from './components/PromptModal';
 import { useToast } from './components/Toast';
+import { useDialogs } from './components/Dialogs';
 import { Badge, Button, IconButton, Input, Kbd, Pubkey, useTheme } from './ui';
 import { AccountInspector } from './features/AccountInspector';
 import { AddAccountForm } from './features/AddAccountForm';
@@ -42,7 +52,6 @@ import { VersionCompareRunPanel } from './features/VersionCompareRunPanel';
 import { AttachIdlForm } from './features/AttachIdlForm';
 import { InspectorPane, type InspectorTab } from './features/InspectorPane';
 import { KeypairsPanel } from './features/KeypairsPanel';
-import { NewSessionForm } from './features/NewSessionForm';
 import { PatchAccountForm } from './features/PatchAccountForm';
 import { ReplayPanel } from './features/ReplayPanel';
 import { SnapshotsPanel } from './features/SnapshotsPanel';
@@ -51,8 +60,19 @@ import { FileEditor } from './features/FileEditor';
 import { FilesTree } from './features/FilesTree';
 import { SettingsPanel } from './features/SettingsPanel';
 import { TxHistoryPanel } from './features/TxHistoryPanel';
+import { AutomationsHome } from './features/AutomationsHome';
 import { WorkflowsPanel } from './features/WorkflowsPanel';
 import { TestsPanel } from './features/TestsPanel';
+import { ConsoleDock, type RunRecord } from './features/ConsoleDock';
+import { TemplatesSidebarSection } from './features/TemplatesSidebarSection';
+import { AutomationsSidebarSection } from './features/AutomationsSidebarSection';
+import { PatchesSidebarSection } from './features/PatchesSidebarSection';
+import { ProjectPatchesPanel, SandboxPatchesPanel } from './features/PatchesPanels';
+import { InlineRename } from './components/InlineRename';
+import { GoalPicker } from './features/GoalPicker';
+import { HelpChip } from './components/HelpChip';
+import { HelpHint } from './components/HelpHint';
+import { OnboardingTour } from './components/OnboardingTour';
 import type { Project, ProgramEntry, ProjectMeta, SessionMeta } from './types';
 
 const SIDEBAR_MIN = 200;
@@ -73,7 +93,7 @@ function useSidebarWidth(): [number, (n: number) => void] {
 }
 
 type NavView = 'workspace' | 'replay' | 'snapshots' | 'keypairs';
-type WorkspaceTab = 'builder' | 'workflows' | 'tests' | 'history' | 'patches';
+type WorkspaceTab = 'builder' | 'automations' | 'patches';
 type SidebarMode = 'project' | 'files';
 
 interface PromptState {
@@ -96,10 +116,154 @@ export function App(): JSX.Element {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const [navView, setNavView] = useState<NavView>('workspace');
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('builder');
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>(() => {
+    if (typeof localStorage === 'undefined') return 'automations';
+    const v = localStorage.getItem('relay:workspace-tab') as WorkspaceTab | null;
+    if (v === 'automations' || v === 'patches') return v;
+    // 'builder' is a headless tab opened only via template clicks — never persisted as default.
+    if (v === 'builder') return 'automations';
+    if (v === 'workflows' || v === 'tests') return 'automations';
+    return 'automations';
+  });
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('relay:workspace-tab', workspaceTab);
+  }, [workspaceTab]);
+
+  // Tx template loader — when set, the Tx Builder workspace tab boots with
+  // this template id (or null = blank). Cleared once builder consumes it.
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null | undefined>(undefined);
+  const openTemplateInBuilder = useCallback((tplId: string | null) => {
+    setPendingTemplateId(tplId);
+    setActiveTemplateId(tplId);
+    setNavView('workspace');
+    setWorkspaceTab('builder');
+  }, []);
+
+  // Automation open intent — routes to Automations workspace + auto-opens
+  // the item in its editor view (skips the in-panel list). Active IDs
+  // double as the sidebar highlight key.
+  const [pendingWorkflowId, setPendingWorkflowId] = useState<string | null | undefined>(undefined);
+  const [pendingTestSuiteId, setPendingTestSuiteId] = useState<string | null | undefined>(undefined);
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  const [activeTestSuiteId, setActiveTestSuiteId] = useState<string | null>(null);
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  // 'home' = AutomationsHome (recent runs / CTAs). 'workflow' / 'test' =
+  // specific item open. Persisted last non-home mode so a deep sidebar
+  // selection survives reload.
+  const [automationsMode, setAutomationsMode] = useState<'home' | 'workflow' | 'test'>(
+    'home',
+  );
+  const openAutomation = useCallback((kind: 'workflow' | 'testSuite', id: string | null) => {
+    if (kind === 'workflow') {
+      setPendingWorkflowId(id);
+      setActiveWorkflowId(id);
+      setPendingTestSuiteId(undefined);
+      setActiveTestSuiteId(null);
+      setAutomationsMode('workflow');
+    } else {
+      setPendingTestSuiteId(id);
+      setActiveTestSuiteId(id);
+      setPendingWorkflowId(undefined);
+      setActiveWorkflowId(null);
+      setAutomationsMode('test');
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('relay:automations-mode', kind === 'workflow' ? 'workflow' : 'test');
+    }
+    setNavView('workspace');
+    setWorkspaceTab('automations');
+  }, []);
+  const goToAutomationsHome = useCallback(() => {
+    setAutomationsMode('home');
+    setPendingWorkflowId(undefined);
+    setPendingTestSuiteId(undefined);
+    setActiveWorkflowId(null);
+    setActiveTestSuiteId(null);
+  }, []);
+
+  // Patch open intent — opens the Inspector modal on the patch's target account.
+  const openPatchTarget = useCallback((address: string) => {
+    setPendingAccountAddress(address);
+    setModal('inspectAccount');
+  }, []);
+
+  // Patches workspace tab focus scope — drives which sub-panel is highlighted
+  // and scrolled into view when the user clicks a Patches sidebar sub-section
+  // header (Project / Sandbox).
+  const [patchesFocusScope, setPatchesFocusScope] = useState<'project' | 'sandbox' | null>(null);
+  const openPatchesTab = useCallback((scope: 'project' | 'sandbox') => {
+    setPatchesFocusScope(scope);
+    setNavView('workspace');
+    setWorkspaceTab('patches');
+  }, []);
+
+  // Latest workflow / test-suite run result — pushed up by the panels so the
+  // bottom console can show it as a tab instead of a buried inline section.
+  // Counter bumps each new run so ConsoleDock can one-shot flip to Results
+  // without needing two-way tab state (which caused render loops).
+  const [runRecord, setRunRecord] = useState<RunRecord | null>(null);
+  const [runRecordCounter, setRunRecordCounter] = useState(0);
+  const pushRunRecord = useCallback((rec: RunRecord): void => {
+    setRunRecord(rec);
+    setRunRecordCounter((n) => n + 1);
+    setHistoryDockOpen(true);
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('relay:history-dock', '1');
+  }, []);
+
+  // History bottom dock — collapsible. ⌘J toggles. Per-window persisted.
+  const [historyDockOpen, setHistoryDockOpen] = useState<boolean>(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem('relay:history-dock') === '1';
+  });
+  const toggleHistoryDock = useCallback(() => {
+    setHistoryDockOpen((v) => {
+      const next = !v;
+      if (typeof localStorage !== 'undefined')
+        localStorage.setItem('relay:history-dock', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+  const [helpSkillId, setHelpSkillId] = useState<string>('relay-overview');
+  // Open Help in the right inspector pane (not as a workspace sub-tab).
+  // updateInspectorTab + rightCollapsed are defined below — we wrap the
+  // call so it picks up the latest references at click time.
+  const openHelp = (skillId: string): void => {
+    setHelpSkillId(skillId);
+    setInspectorTab('help');
+    if (rightCollapsed) setRightCollapsed(false);
+  };
+
+  // Per-project flag for the first-run goal picker. Stored in localStorage
+  // so dismiss survives reloads. Key is per project id.
+  const goalKey = (pid: string): string => `relay:goal-dismissed:${pid}`;
+  const [goalDismissed, setGoalDismissed] = useState<boolean>(false);
+  useEffect(() => {
+    if (!activeProjectId) {
+      setGoalDismissed(false);
+      return;
+    }
+    setGoalDismissed(
+      typeof localStorage !== 'undefined' &&
+        localStorage.getItem(goalKey(activeProjectId)) === '1',
+    );
+  }, [activeProjectId]);
+  const dismissGoal = (): void => {
+    setGoalDismissed(true);
+    if (activeProjectId && typeof localStorage !== 'undefined') {
+      localStorage.setItem(goalKey(activeProjectId), '1');
+    }
+  };
+  const onGoalPick = (goal: 'workflow' | 'testSuite'): void => {
+    dismissGoal();
+    // Route to the matching editor with a blank doc. openAutomation handles
+    // nav/tab/mode + signals the inner panel via pendingId=null to enter
+    // create flow.
+    openAutomation(goal, null);
+  };
 
   const [modal, setModal] = useState<
-    | 'newSession'
     | 'addProgram'
     | 'addAccount'
     | 'attachIdl'
@@ -184,7 +348,12 @@ export function App(): JSX.Element {
   });
   const [sessionsSectionOpen, setSessionsSectionOpen] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return true;
-    return localStorage.getItem('relay:section-sessions') !== '0';
+    // Read new key first; fall back to legacy `relay:section-sessions` for
+    // existing users.
+    const next =
+      localStorage.getItem('relay:section-sandboxes') ??
+      localStorage.getItem('relay:section-sessions');
+    return next !== '0';
   });
   const toggleProgramsSection = useCallback(() => {
     setProgramsSectionOpen((v) => {
@@ -197,8 +366,11 @@ export function App(): JSX.Element {
   const toggleSessionsSection = useCallback(() => {
     setSessionsSectionOpen((v) => {
       const next = !v;
-      if (typeof localStorage !== 'undefined')
-        localStorage.setItem('relay:section-sessions', next ? '1' : '0');
+      if (typeof localStorage !== 'undefined') {
+        // Write the new key. Leave the legacy key in place so an older app
+        // version reading it still gets a value (forward compat).
+        localStorage.setItem('relay:section-sandboxes', next ? '1' : '0');
+      }
       return next;
     });
   }, []);
@@ -234,7 +406,9 @@ export function App(): JSX.Element {
 
   const ctx = useContextMenu();
   const toast = useToast();
+  const dialogs = useDialogs();
   const [paletteOpen, setPaletteOpen] = useState(false);
+
   const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -271,18 +445,22 @@ export function App(): JSX.Element {
     });
   }, []);
 
-  // Keyboard: Ctrl/Cmd + B toggle left, Ctrl/Cmd + Alt + B toggle right
+  // Keyboard: Ctrl/Cmd + B toggle left, Ctrl/Cmd + Alt + B toggle right,
+  // Ctrl/Cmd + J toggle history dock.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         if (e.altKey) toggleRight();
         else toggleLeft();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        toggleHistoryDock();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleLeft, toggleRight]);
+  }, [toggleLeft, toggleRight, toggleHistoryDock]);
   const draggingRef = useRef(false);
   const [dragging, setDragging] = useState(false);
 
@@ -338,6 +516,14 @@ export function App(): JSX.Element {
       setActiveProject(project);
       const sess = await api.call<SessionMeta[]>('session.list', { projectId: id });
       setSessions(sess);
+      // Auto-select a sandbox so newbies don't have to. Prefer the default,
+      // then the first. Only acts when nothing is selected for this project's
+      // sandbox set.
+      setActiveSessionId((prev) => {
+        if (prev && sess.some((s) => s.id === prev)) return prev;
+        const def = sess.find((s) => s.isDefault) ?? sess[0];
+        return def?.id ?? null;
+      });
       const idls = await api.call<Array<{ programId: string }>>('idl.list');
       setIdlAttached(new Set(idls.map((i) => i.programId)));
       setExpandedPrograms((prev) => {
@@ -349,9 +535,96 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  // Inline "New sandbox" prompt — replaces the old NewSessionForm modal. The
+  // form's only required field is a name, so a simple dialogs.prompt() flow
+  // removes a full modal mount + 2 extra clicks. Defined here (not above the
+  // earlier section) because it depends on `dialogs`, `toast`, and
+  // `reloadProject` which are declared later.
+  const promptNewSandbox = useCallback(async (): Promise<void> => {
+    if (!activeProjectId) return;
+    const name = await dialogs.prompt({
+      title: 'New sandbox',
+      label: 'Name',
+      placeholder: 'happy-path',
+      confirmText: 'Create',
+    });
+    if (!name?.trim()) return;
+    try {
+      const sb = await api.call<{ id: string }>('session.create', {
+        projectId: activeProjectId,
+        name: name.trim(),
+      });
+      if (sb?.id) setActiveSessionId(sb.id);
+      await reloadProject(activeProjectId);
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }, [activeProjectId, dialogs, reloadProject, toast]);
+
   useEffect(() => {
     void reloadProjects();
   }, [reloadProjects]);
+
+  // Drag-and-drop a .so file onto the project window → add as local program
+  // (or new version if program id already exists). .so bytes carry no
+  // programId so we prompt the user.
+  const handleDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      if (!activeProjectId) return;
+      const files = Array.from(e.dataTransfer.files);
+      const so = files.find((f) => f.name.endsWith('.so'));
+      if (!so) return;
+      e.preventDefault();
+      const fileLabel = so.name.replace(/\.so$/, '');
+      const buf = await so.arrayBuffer();
+      const u8 = new Uint8Array(buf);
+      let bytesBase64 = '';
+      // btoa chokes on huge strings; chunk to be safe.
+      const CHUNK = 0x8000;
+      for (let i = 0; i < u8.length; i += CHUNK) {
+        bytesBase64 += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+      }
+      bytesBase64 = btoa(bytesBase64);
+      setPrompt({
+        options: {
+          title: `Add "${so.name}" as local program`,
+          label: 'Program ID',
+          placeholder: 'base58 program id',
+          confirmText: 'Add',
+        },
+        onConfirm: async (programId) => {
+          setPrompt(null);
+          const pid = programId.trim();
+          if (!pid) return;
+          try {
+            const r = await api.call<{ kind: string; programId: string; versionId?: string }>(
+              'program.addLocal',
+              {
+                projectId: activeProjectId,
+                programId: pid,
+                label: fileLabel,
+                bytesBase64,
+                filePath: so.name,
+              },
+            );
+            toast.success(
+              r.kind === 'versionAdded'
+                ? `new version added to ${pid.slice(0, 8)}…`
+                : `program added · ${fileLabel}`,
+            );
+            await reloadProject(activeProjectId);
+          } catch (err) {
+            toast.error(String(err));
+          }
+        },
+      });
+    },
+    [activeProjectId, reloadProject, toast],
+  );
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
 
   // Background auto-reload: main process watches <projectRoot>/.relay.json
   // and <projectRoot>/.relay/. On any external change, ask the worker to
@@ -419,9 +692,9 @@ export function App(): JSX.Element {
     // Views
     const views: Array<{ id: NavView; label: string; shortcut?: string }> = [
       { id: 'workspace', label: 'Workspace' },
-      { id: 'replay', label: 'Replay' },
-      { id: 'snapshots', label: 'Snapshots' },
       { id: 'keypairs', label: 'Keypairs' },
+      { id: 'snapshots', label: 'Snapshots' },
+      { id: 'replay', label: 'Replay' },
     ];
     for (const v of views) {
       items.push({
@@ -432,12 +705,10 @@ export function App(): JSX.Element {
       });
     }
 
-    // Workspace tabs
+    // Workspace tabs (activity-rail entries)
     const tabs: Array<{ id: WorkspaceTab; label: string }> = [
       { id: 'builder', label: 'Tx Builder' },
-      { id: 'workflows', label: 'Workflows' },
-      { id: 'tests', label: 'Tests' },
-      { id: 'history', label: 'Tx History' },
+      { id: 'automations', label: 'Automations (Workflows + Tests)' },
       { id: 'patches', label: 'Patches' },
     ];
     for (const t of tabs) {
@@ -463,9 +734,9 @@ export function App(): JSX.Element {
       {
         id: 'cmd:new-session',
         group: 'Command',
-        label: 'New session…',
+        label: 'New sandbox…',
         hint: activeProjectId ? '' : '(open a project first)',
-        onSelect: () => activeProjectId && setModal('newSession'),
+        onSelect: () => activeProjectId && void promptNewSandbox(),
       },
       {
         id: 'cmd:add-program',
@@ -473,6 +744,70 @@ export function App(): JSX.Element {
         label: 'Add program…',
         hint: activeProjectId ? '' : '(open a project first)',
         onSelect: () => activeProjectId && setModal('addProgram'),
+      },
+      {
+        id: 'cmd:new-workflow',
+        group: 'Command',
+        label: 'New workflow…',
+        hint: activeProjectId ? '' : '(open a project first)',
+        onSelect: () => activeProjectId && openAutomation('workflow', null),
+      },
+      {
+        id: 'cmd:new-test-suite',
+        group: 'Command',
+        label: 'New test suite…',
+        hint: activeProjectId ? '' : '(open a project first)',
+        onSelect: () => activeProjectId && openAutomation('testSuite', null),
+      },
+      {
+        id: 'cmd:open-demo',
+        group: 'Command',
+        label: 'Open demo project',
+        hint: 'preset Relay Demo with builtins + sample artifacts',
+        onSelect: () => void api.call('app.showWelcome'),
+      },
+      {
+        id: 'cmd:reset-sandbox',
+        group: 'Command',
+        label: 'Reset sandbox to baseline',
+        hint: activeSessionId ? '' : '(no sandbox selected)',
+        onSelect: async () => {
+          if (!activeSessionId) return;
+          const ok = await dialogs.confirm({
+            title: 'Reset sandbox?',
+            message: 'Wipes all mutations + history. Patches re-apply.',
+            danger: true,
+            confirmText: 'Reset',
+          });
+          if (!ok) return;
+          try {
+            await api.call('session.reset', { sessionId: activeSessionId });
+            if (activeProjectId) await reloadProject(activeProjectId);
+            toast.success('Sandbox reset');
+          } catch (e) {
+            toast.error(String(e));
+          }
+        },
+      },
+      {
+        id: 'cmd:toggle-history-dock',
+        group: 'Command',
+        label: 'Toggle history dock',
+        hint: '⌘J',
+        onSelect: () => toggleHistoryDock(),
+      },
+      {
+        id: 'cmd:toggle-left-sidebar',
+        group: 'Command',
+        label: 'Toggle sidebar',
+        hint: '⌘B',
+        onSelect: () => toggleLeft(),
+      },
+      {
+        id: 'cmd:open-help',
+        group: 'Command',
+        label: 'Open glossary / help',
+        onSelect: () => openHelp('relay-overview'),
       },
     );
 
@@ -487,11 +822,11 @@ export function App(): JSX.Element {
       });
     }
 
-    // Sessions
+    // Sandboxes
     for (const s of sessions) {
       items.push({
         id: `session:${s.id}`,
-        group: 'Session',
+        group: 'Sandbox',
         label: s.name,
         hint: `${s.accountCount} accts`,
         onSelect: () => {
@@ -541,7 +876,7 @@ export function App(): JSX.Element {
       onSelect: () =>
         setConfirm({
           title: 'Delete project',
-          message: `"${p.name}" and all its sessions, programs, accounts, and snapshots will be permanently removed.`,
+          message: `"${p.name}" and all its sandboxes, programs, accounts, and snapshots will be permanently removed.`,
           danger: true,
           confirmText: 'Delete',
           onConfirm: async () => {
@@ -598,7 +933,7 @@ export function App(): JSX.Element {
       : []),
     ...(versions.length > 1 && activeSessionId
       ? (versions.map((v) => ({
-          label: `Pin "${v.label}" for active session`,
+          label: `Pin "${v.label}" for active sandbox`,
           onSelect: () =>
             safeCall(async () => {
               await api.call('program.versionPinForSession', {
@@ -611,13 +946,13 @@ export function App(): JSX.Element {
               });
               setSessionPins(pins);
               if (activeProjectId) await reloadProject(activeProjectId);
-            }, `pinned ${v.label} for session`),
+            }, `pinned ${v.label} for sandbox`),
         })) as MenuItem[])
       : []),
     ...(versions.length > 1 && activeSessionId
       ? ([
           {
-            label: 'Clear session pin',
+            label: 'Clear sandbox pin',
             onSelect: () =>
               safeCall(async () => {
                 await api.call('program.versionPinForSession', {
@@ -630,7 +965,7 @@ export function App(): JSX.Element {
                 });
                 setSessionPins(pins);
                 if (activeProjectId) await reloadProject(activeProjectId);
-              }, 'session pin cleared'),
+              }, 'sandbox pin cleared'),
           },
         ] as MenuItem[])
       : []),
@@ -811,10 +1146,10 @@ export function App(): JSX.Element {
 
   const sessionMenu = (s: SessionMeta): MenuItem[] => [
     {
-      label: 'Rename session…',
+      label: 'Rename sandbox…',
       onSelect: () =>
         setPrompt({
-          options: { title: 'Rename session', label: 'New name', initial: s.name },
+          options: { title: 'Rename sandbox', label: 'New name', initial: s.name },
           onConfirm: async (name) => {
             setPrompt(null);
             await safeCall(() => api.call('session.rename', { id: s.id, name }));
@@ -823,10 +1158,10 @@ export function App(): JSX.Element {
         }),
     },
     {
-      label: 'Reset session to baseline',
+      label: 'Reset sandbox to baseline',
       onSelect: () =>
         setConfirm({
-          title: 'Reset session',
+          title: 'Reset sandbox',
           message: `Reset "${s.name}"? Mutations + tx history cleared.`,
           confirmText: 'Reset',
           onConfirm: async () => {
@@ -837,11 +1172,11 @@ export function App(): JSX.Element {
         }),
     },
     {
-      label: 'Delete session',
+      label: 'Delete sandbox',
       danger: true,
       onSelect: () =>
         setConfirm({
-          title: 'Delete session',
+          title: 'Delete sandbox',
           message: `Permanently delete "${s.name}"?`,
           danger: true,
           confirmText: 'Delete',
@@ -873,9 +1208,67 @@ export function App(): JSX.Element {
     });
   }, [activeProject, searchTerm]);
 
+  // Programs filter chips — refines the search-filtered list further.
+  // 'all' = no extra filter. Persisted across sessions.
+  type ProgramsFilter = 'all' | 'idl' | 'multi-version' | 'patched';
+  const [programsFilter, setProgramsFilter] = useState<ProgramsFilter>(() => {
+    if (typeof localStorage === 'undefined') return 'all';
+    const v = localStorage.getItem('relay:programs-filter') as ProgramsFilter | null;
+    if (v === 'idl' || v === 'multi-version' || v === 'patched') return v;
+    return 'all';
+  });
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('relay:programs-filter', programsFilter);
+  }, [programsFilter]);
+
+  // Per-program patch count — sum of project + sandbox patches whose target
+  // is one of the program's account addresses. Cheap O(P × A × patches).
+  const programPatchCount = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    if (!activeProject) return counts;
+    const allPatches = [
+      ...(activeProject.patches as Array<{ target: string }>),
+    ];
+    if (activeSessionId) {
+      const sess = sessions.find((s) => s.id === activeSessionId);
+      if (sess) {
+        // session patches not directly on SessionMeta; fetched separately. We
+        // skip them here — project-scope patches alone are the common case.
+        void sess;
+      }
+    }
+    for (const prog of Object.values(activeProject.programs)) {
+      const addrs = new Set((prog.accounts ?? []).map((a) => a.address));
+      let n = 0;
+      for (const p of allPatches) if (addrs.has(p.target)) n += 1;
+      counts[prog.programId] = n;
+    }
+    return counts;
+  }, [activeProject, activeSessionId, sessions]);
+
+  const programsFilterPass = useCallback(
+    (p: ProgramEntry): boolean => {
+      switch (programsFilter) {
+        case 'idl':
+          return idlAttached.has(p.programId);
+        case 'multi-version':
+          return Array.isArray(p.versions) && p.versions.length >= 2;
+        case 'patched':
+          return (programPatchCount[p.programId] ?? 0) > 0;
+        default:
+          return true;
+      }
+    },
+    [programsFilter, idlAttached, programPatchCount],
+  );
+
   const visiblePrograms = useMemo(
-    () => allFilteredPrograms.filter((p) => !hiddenPrograms.has(p.programId)),
-    [allFilteredPrograms, hiddenPrograms],
+    () =>
+      allFilteredPrograms
+        .filter((p) => !hiddenPrograms.has(p.programId))
+        .filter(programsFilterPass),
+    [allFilteredPrograms, hiddenPrograms, programsFilterPass],
   );
   const hiddenProgramList = useMemo(
     () => allFilteredPrograms.filter((p) => hiddenPrograms.has(p.programId)),
@@ -896,6 +1289,8 @@ export function App(): JSX.Element {
     <div
       className={`shell${leftCollapsed ? ' left-collapsed' : ''}${rightCollapsed ? ' right-collapsed' : ''}`}
       style={{ '--left-col': `${sidebarWidth}px` } as React.CSSProperties}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <header
         className={`app-header${api.platform === 'darwin' ? ' is-mac' : api.platform === 'win32' ? ' is-win' : ' is-linux'}`}
@@ -937,6 +1332,15 @@ export function App(): JSX.Element {
             aria-pressed={!leftCollapsed}
           >
             {leftCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+          </button>
+          <button
+            className={`header-side-toggle${historyDockOpen ? ' active' : ''}`}
+            onClick={toggleHistoryDock}
+            title={`${historyDockOpen ? 'Hide' : 'Show'} bottom panel — Tx history (⌘J)`}
+            aria-label="Toggle bottom panel"
+            aria-pressed={historyDockOpen}
+          >
+            {historyDockOpen ? <PanelBottomClose size={14} /> : <PanelBottomOpen size={14} />}
           </button>
           <button
             className={`header-side-toggle${!rightCollapsed ? ' active' : ''}`}
@@ -981,16 +1385,37 @@ export function App(): JSX.Element {
       <nav className="nav-rail">
         {(
           [
-            { id: 'workspace', icon: <LayoutGrid size={18} aria-hidden />, label: 'Workspace' },
-            { id: 'replay', icon: <History size={18} aria-hidden />, label: 'Replay' },
-            { id: 'snapshots', icon: <Camera size={18} aria-hidden />, label: 'Snapshots' },
-            { id: 'keypairs', icon: <KeyRound size={18} aria-hidden />, label: 'Keypairs' },
-          ] as Array<{ id: NavView; icon: ReactNode; label: string }>
+            {
+              id: 'workspace',
+              icon: <LayoutDashboard size={18} aria-hidden />,
+              label: 'Workspace',
+              tip: 'Workspace · build, test, automate',
+            },
+            {
+              id: 'keypairs',
+              icon: <Wallet size={18} aria-hidden />,
+              label: 'Keypairs',
+              tip: 'Signing keys · payers + authority',
+            },
+            {
+              id: 'snapshots',
+              icon: <Bookmark size={18} aria-hidden />,
+              label: 'Snapshots',
+              tip: 'Sandbox snapshots · save + restore state',
+            },
+            {
+              id: 'replay',
+              icon: <Rewind size={18} aria-hidden />,
+              label: 'Replay',
+              tip: 'Replay mainnet tx · forensics on real signatures',
+            },
+          ] as Array<{ id: NavView; icon: ReactNode; label: string; tip: string }>
         ).map((v) => (
           <NavRailButton
             key={v.id}
             icon={v.icon}
             label={v.label}
+            tip={v.tip}
             active={navView === v.id}
             collapsed={leftCollapsed}
             onClick={() => {
@@ -1016,7 +1441,7 @@ export function App(): JSX.Element {
             </div>
             <div className="text-2xs text-text-subtle truncate font-mono">
               {activeProjectMeta
-                ? `${activeProjectMeta.network} · ${activeProjectMeta.programCount}p · ${activeProjectMeta.sessionCount}s`
+                ? `${activeProjectMeta.network} · ${activeProjectMeta.programCount}p · ${activeProjectMeta.sessionCount}sb`
                 : 'open one to start'}
             </div>
           </div>
@@ -1028,6 +1453,69 @@ export function App(): JSX.Element {
             onClick={() => void api.call('app.showWelcome')}
           />
         </div>
+
+        {/* Sandbox dropdown — sits directly under project header. Single
+            row when one sandbox, native <select> when many. Plus button
+            spawns a new one. */}
+        {activeProject && sessions.length === 0 && (
+          <div className="sandbox-picker sandbox-picker-empty">
+            <span className="sandbox-picker-label">
+              Sandbox
+              <HelpHint
+                label="Sandbox"
+                hint="Isolated local Solana env for testing. State is yours alone — mutate, warp time, reset freely."
+                skillId="relay-sandbox"
+                onOpen={openHelp}
+              />
+            </span>
+            <button
+              type="button"
+              className="sandbox-picker-create"
+              onClick={() => void promptNewSandbox()}
+            >
+              <Plus size={11} aria-hidden /> Create
+            </button>
+          </div>
+        )}
+        {activeProject && sessions.length > 0 && (
+          <div className="sandbox-picker">
+            <span className="sandbox-picker-label">
+              Sandbox
+              <HelpHint
+                label="Sandbox"
+                hint="Isolated local Solana env for testing. State is yours alone — mutate, warp time, reset freely."
+                skillId="relay-sandbox"
+                onOpen={openHelp}
+              />
+            </span>
+            {sessions.length === 1 ? (
+              <span className="sandbox-picker-single" title={sessions[0]!.name}>
+                {sessions[0]!.name}
+              </span>
+            ) : (
+              <select
+                className="sandbox-picker-select"
+                value={activeSessionId ?? ''}
+                onChange={(e) => setActiveSessionId(e.target.value || null)}
+              >
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.mutationCount > 0 ? ' · dirty' : ''}
+                    {s.isDefault ? ' · default' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <IconButton
+              icon={<Plus size={11} />}
+              label="New sandbox"
+              size="sm"
+              variant="ghost"
+              onClick={() => void promptNewSandbox()}
+            />
+          </div>
+        )}
 
         {/* Sidebar mode tabs (Android-Studio-style) */}
         {activeProject && (
@@ -1088,71 +1576,31 @@ export function App(): JSX.Element {
               </div>
             </div>
 
-            <div className="tree-section">
-              <button
-                type="button"
-                className="tree-section-header"
-                onClick={toggleSessionsSection}
-                aria-expanded={sessionsSectionOpen}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="inline-flex text-text-subtle">
-                    {sessionsSectionOpen ? (
-                      <ChevronDown size={11} aria-hidden />
-                    ) : (
-                      <ChevronRight size={11} aria-hidden />
-                    )}
-                  </span>
-                  Sessions
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="tree-section-count">{sessions.length}</span>
-                  <span
-                    className="tree-section-add"
-                    title="New session"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setModal('newSession');
-                    }}
-                  >
-                    <Plus size={12} aria-hidden />
-                  </span>
-                </span>
-              </button>
+            {/* Sandbox is now a dropdown at the top of the sidebar header;
+                this tree section was removed. */}
 
-              {sessionsSectionOpen &&
-                (sessions.length === 0 ? (
-                  <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
-                    none yet — click + above
-                  </div>
-                ) : (
-                  sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className={`tree-session${s.id === activeSessionId ? ' selected' : ''}`}
-                      onClick={() => setActiveSessionId(s.id)}
-                      onContextMenu={(e) => ctx.open(e, sessionMenu(s))}
-                    >
-                      <span className="session-dot" />
-                      <span className="session-name">
-                        <InlineRename
-                          value={s.name}
-                          onCommit={async (next) => {
-                            await safeCall(
-                              () => api.call('session.rename', { id: s.id, name: next }),
-                              'session renamed',
-                            );
-                            if (activeProjectId) await reloadProject(activeProjectId);
-                          }}
-                        />
-                      </span>
-                      <span className="font-mono text-2xs text-text-subtle">
-                        {s.accountCount}/{s.mutationCount}
-                      </span>
-                    </div>
-                  ))
-                ))}
-            </div>
+            {/* Order (top → bottom): Automations · Tx Templates · Programs · Patches */}
+
+            <AutomationsSidebarSection
+              project={activeProject}
+              onOpen={openAutomation}
+              onChange={() => {
+                if (activeProjectId) void reloadProject(activeProjectId);
+              }}
+              onOpenHelp={openHelp}
+              activeWorkflowId={workspaceTab === 'automations' ? activeWorkflowId : null}
+              activeTestSuiteId={workspaceTab === 'automations' ? activeTestSuiteId : null}
+            />
+
+            <TemplatesSidebarSection
+              project={activeProject}
+              onTemplateOpen={openTemplateInBuilder}
+              onChange={() => {
+                if (activeProjectId) void reloadProject(activeProjectId);
+              }}
+              onOpenHelp={openHelp}
+              activeId={workspaceTab === 'builder' ? activeTemplateId : null}
+            />
 
             <div className="tree-section">
               <button
@@ -1170,6 +1618,7 @@ export function App(): JSX.Element {
                     )}
                   </span>
                   Programs
+                  <HelpChip skillId="relay-versions" onOpen={openHelp} label="Programs" />
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className="tree-section-count">
@@ -1202,6 +1651,29 @@ export function App(): JSX.Element {
                 </span>
               </button>
 
+              {programsSectionOpen &&
+                Object.keys(activeProject.programs).length >= 4 && (
+                  <div className="programs-filter-bar">
+                    {(
+                      [
+                        { id: 'all', label: 'All' },
+                        { id: 'idl', label: 'IDL' },
+                        { id: 'multi-version', label: 'multi-ver' },
+                        { id: 'patched', label: 'patched' },
+                      ] as const
+                    ).map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`programs-filter-chip${programsFilter === f.id ? ' active' : ''}`}
+                        onClick={() => setProgramsFilter(f.id)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
               {programsSectionOpen && programsView === 'list' && (
                 <ProgramsListView
                   programs={visiblePrograms}
@@ -1222,9 +1694,25 @@ export function App(): JSX.Element {
               {programsSectionOpen && programsView === 'tree' && (
                 <>
                   {visiblePrograms.length === 0 && hiddenProgramList.length === 0 ? (
-                    <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
-                      {searchTerm ? 'no matches' : 'none yet — click + above'}
-                    </div>
+                    searchTerm ? (
+                      <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
+                        no matches
+                      </div>
+                    ) : (
+                      <div className="tree-empty-cta">
+                        <div className="tree-empty-title">No programs yet</div>
+                        <div className="tree-empty-desc">
+                          Add a Solana program to start testing.
+                        </div>
+                        <button
+                          type="button"
+                          className="tree-empty-action"
+                          onClick={() => setModal('addProgram')}
+                        >
+                          <Plus size={11} aria-hidden /> Add program
+                        </button>
+                      </div>
+                    )
                   ) : (
                     visiblePrograms.map((prog) => {
                       const isExpanded = expandedPrograms.has(prog.programId);
@@ -1291,11 +1779,22 @@ export function App(): JSX.Element {
                                   {prog.versions.length > 1 && ` · ${prog.versions.length}`}
                                 </Badge>
                               )}
+                              {(programPatchCount[prog.programId] ?? 0) > 0 && (
+                                <Badge
+                                  size="sm"
+                                  variant="warning"
+                                  title={`${programPatchCount[prog.programId]} patch${
+                                    programPatchCount[prog.programId] === 1 ? '' : 'es'
+                                  } target accounts of this program`}
+                                >
+                                  ⚒{programPatchCount[prog.programId]}
+                                </Badge>
+                              )}
                               {sessionPins[prog.programId] && (
                                 <Badge
                                   size="sm"
                                   variant="accent"
-                                  title="Session pin override active"
+                                  title="Sandbox pin override active"
                                 >
                                   pin: {prog.versions.find((v) => v.id === sessionPins[prog.programId])?.label ?? '?'}
                                 </Badge>
@@ -1419,6 +1918,14 @@ export function App(): JSX.Element {
                 </>
               )}
             </div>
+
+            <PatchesSidebarSection
+              project={activeProject}
+              activeSandboxId={activeSessionId}
+              activeFocusScope={workspaceTab === 'patches' ? patchesFocusScope : null}
+              onOpenPatchesTab={openPatchesTab}
+              onOpenHelp={openHelp}
+            />
           </>
         )}
 
@@ -1455,88 +1962,97 @@ export function App(): JSX.Element {
                   Press <span className="kbd">⌘K</span> for command palette
                 </div>
               </div>
+            ) : sidebarMode === 'files' ? (
+              <FileTabsAndEditor
+                openedFiles={openedFiles}
+                activeFile={activeFile}
+                onSelect={setActiveFile}
+                onClose={closeFileTab}
+                onSaved={() => {
+                  setFilesRefreshKey((k) => k + 1);
+                  if (activeProjectId) void reloadProject(activeProjectId);
+                }}
+              />
             ) : (
-              <>
-                {sidebarMode === 'project' && (
-                  <div className="sub-tabs">
-                    <button
-                      className={`sub-tab${workspaceTab === 'builder' ? ' active' : ''}`}
-                      onClick={() => setWorkspaceTab('builder')}
-                    >
-                      Tx Builder
-                    </button>
-                    <button
-                      className={`sub-tab${workspaceTab === 'workflows' ? ' active' : ''}`}
-                      onClick={() => setWorkspaceTab('workflows')}
-                    >
-                      Workflows
-                    </button>
-                    <button
-                      className={`sub-tab${workspaceTab === 'tests' ? ' active' : ''}`}
-                      onClick={() => setWorkspaceTab('tests')}
-                    >
-                      Tests
-                    </button>
-                    <button
-                      className={`sub-tab${workspaceTab === 'history' ? ' active' : ''}`}
-                      onClick={() => setWorkspaceTab('history')}
-                    >
-                      History
-                    </button>
-                    <button
-                      className={`sub-tab${workspaceTab === 'patches' ? ' active' : ''}`}
-                      onClick={() => setWorkspaceTab('patches')}
-                    >
-                      Patches
-                    </button>
-                  </div>
-                )}
+              <div className="workspace-split">
+                {/* Activity rail — vertical icon strip selecting the workspace panel. */}
+                {/* Workspace activity rail removed — Templates / Automations /
+                    Patches are now sidebar-driven entry points. The bottom
+                    History dock keeps its own toggles (toolbar icon + ⌘J +
+                    dock header close). */}
 
-                {sidebarMode === 'files' ? (
-                  <FileTabsAndEditor
-                    openedFiles={openedFiles}
-                    activeFile={activeFile}
-                    onSelect={setActiveFile}
-                    onClose={closeFileTab}
-                    onSaved={() => {
-                      setFilesRefreshKey((k) => k + 1);
-                      if (activeProjectId) void reloadProject(activeProjectId);
-                    }}
-                  />
-                ) : (
-                  <>
+                {/* Center panel + bottom history dock */}
+                <div className="workspace-center">
+                  <div className="workspace-panel">
                     {workspaceTab === 'builder' && (
-                      <TxBuilderPanel project={activeProject} activeSessionId={activeSessionId} />
-                    )}
-                    {workspaceTab === 'workflows' && (
-                      <WorkflowsPanel
+                      <TxBuilderPanel
                         project={activeProject}
                         activeSessionId={activeSessionId}
-                        onSelectSession={setActiveSessionId}
+                        pendingTemplateId={pendingTemplateId}
+                        onTemplateConsumed={() => setPendingTemplateId(undefined)}
+                        onOpenHelp={openHelp}
                       />
                     )}
-                    {workspaceTab === 'tests' && (
-                      <TestsPanel
-                        project={activeProject}
-                        activeSessionId={activeSessionId}
-                        onSelectSession={setActiveSessionId}
-                      />
-                    )}
-                    {workspaceTab === 'history' && (
-                      <TxHistoryPanel activeSessionId={activeSessionId} />
-                    )}
-                    {workspaceTab === 'patches' && (
-                      <PatchesPanel
-                        project={activeProject}
-                        activeSessionId={activeSessionId}
-                        onChange={() => {
-                          if (activeProjectId) void reloadProject(activeProjectId);
-                        }}
-                      />
-                    )}
-                  </>
-                )}
-              </>
+                    {workspaceTab === 'automations' && activeProject &&
+                      (automationsMode === 'home' ? (
+                        <AutomationsHome
+                          project={activeProject}
+                          goalDismissed={goalDismissed}
+                          onOpen={(kind, id) => openAutomation(kind, id)}
+                          onPick={onGoalPick}
+                          onDismissGoal={dismissGoal}
+                        />
+                      ) : automationsMode === 'test' ? (
+                        <TestsPanel
+                          project={activeProject}
+                          activeSessionId={activeSessionId}
+                          onSelectSession={setActiveSessionId}
+                          onOpenHelp={openHelp}
+                          pendingOpenId={pendingTestSuiteId}
+                          onConsumePending={() => setPendingTestSuiteId(undefined)}
+                          onBackToHome={goToAutomationsHome}
+                          onPushRunRecord={pushRunRecord}
+                        />
+                      ) : (
+                        <WorkflowsPanel
+                          project={activeProject}
+                          activeSessionId={activeSessionId}
+                          onSelectSession={setActiveSessionId}
+                          onOpenHelp={openHelp}
+                          pendingOpenId={pendingWorkflowId}
+                          onConsumePending={() => setPendingWorkflowId(undefined)}
+                          onBackToHome={goToAutomationsHome}
+                          onPushRunRecord={pushRunRecord}
+                        />
+                      ))}
+                    {workspaceTab === 'patches' &&
+                      ((patchesFocusScope ?? 'project') === 'sandbox' ? (
+                        <SandboxPatchesPanel
+                          project={activeProject}
+                          activeSessionId={activeSessionId}
+                          onChange={() => {
+                            if (activeProjectId) void reloadProject(activeProjectId);
+                          }}
+                        />
+                      ) : (
+                        <ProjectPatchesPanel
+                          project={activeProject}
+                          onChange={() => {
+                            if (activeProjectId) void reloadProject(activeProjectId);
+                          }}
+                        />
+                      ))}
+                  </div>
+                  {historyDockOpen && (
+                    <ConsoleDock
+                      activeSessionId={activeSessionId}
+                      onClose={toggleHistoryDock}
+                      runRecord={runRecord}
+                      runRecordId={runRecordCounter}
+                    />
+                  )}
+                </div>
+              </div>
             )}
           </>
         )}
@@ -1558,6 +2074,7 @@ export function App(): JSX.Element {
         sessions={sessions}
         activeSessionId={activeSessionId}
         tab={inspectorTab}
+        helpSkillId={helpSkillId}
       />
 
       <nav className="inspector-rail">
@@ -1565,6 +2082,7 @@ export function App(): JSX.Element {
           [
             { id: 'details', icon: <Info size={14} aria-hidden />, label: 'Details' },
             { id: 'activity', icon: <Activity size={14} aria-hidden />, label: 'Activity' },
+            { id: 'help', icon: <HelpCircle size={14} aria-hidden />, label: 'Help' },
             { id: 'shortcuts', icon: <Command size={14} aria-hidden />, label: 'Shortcuts' },
           ] as Array<{ id: InspectorTab; icon: ReactNode; label: string }>
         ).map((t) => {
@@ -1595,17 +2113,6 @@ export function App(): JSX.Element {
       </nav>
 
       {/* Modals */}
-      {modal === 'newSession' && activeProjectId && (
-        <Modal onClose={() => setModal(null)}>
-          <NewSessionForm
-            projectId={activeProjectId}
-            onDone={async () => {
-              setModal(null);
-              await reloadProject(activeProjectId);
-            }}
-          />
-        </Modal>
-      )}
       {modal === 'addProgram' && activeProjectId && (
         <Modal onClose={() => setModal(null)}>
           <AddProgramForm
@@ -1672,8 +2179,12 @@ export function App(): JSX.Element {
           <AccountInspector
             projectId={activeProjectId}
             address={pendingAccountAddress}
+            activeSessionId={activeSessionId}
             onClose={() => setModal(null)}
             onPatchRequested={() => setModal('patchAccount')}
+            onPatchesChanged={() => {
+              if (activeProjectId) void reloadProject(activeProjectId);
+            }}
           />
         </Modal>
       )}
@@ -1718,6 +2229,8 @@ export function App(): JSX.Element {
         onClose={() => setPaletteOpen(false)}
       />
 
+      <OnboardingTour />
+
       <footer className="status-bar">
         {activeProject ? (
           <>
@@ -1732,7 +2245,7 @@ export function App(): JSX.Element {
               {activeProject.rpcEndpointId}
             </span>
             {activeSessionId && (
-              <span className="status-item" title="Active session">
+              <span className="status-item" title="Active sandbox">
                 <span className="status-dot" />
                 <span>{sessions.find((s) => s.id === activeSessionId)?.name ?? '?'}</span>
               </span>
@@ -1983,69 +2496,7 @@ function ProgramsListView({
   );
 }
 
-function InlineRename({
-  value,
-  onCommit,
-  className,
-}: {
-  value: string;
-  onCommit: (next: string) => void | Promise<void>;
-  className?: string;
-}): JSX.Element {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [value, editing]);
-  if (!editing) {
-    return (
-      <span
-        className={className}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          setEditing(true);
-        }}
-        title="Double-click to rename"
-      >
-        {value}
-      </span>
-    );
-  }
-  return (
-    <input
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const next = draft.trim();
-          setEditing(false);
-          if (next && next !== value) void onCommit(next);
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          setEditing(false);
-          setDraft(value);
-        }
-      }}
-      onBlur={() => {
-        const next = draft.trim();
-        setEditing(false);
-        if (next && next !== value) void onCommit(next);
-      }}
-      style={{
-        font: 'inherit',
-        color: 'inherit',
-        background: 'rgb(var(--color-bg))',
-        border: '1px solid rgb(var(--color-border-strong))',
-        borderRadius: 3,
-        padding: '0 4px',
-        minWidth: 80,
-      }}
-    />
-  );
-}
+// InlineRename moved to ./components/InlineRename — re-imported above.
 
 function ThemeToggle(): JSX.Element {
   const { theme, toggle } = useTheme();
@@ -2066,12 +2517,15 @@ function ThemeToggle(): JSX.Element {
 function NavRailButton({
   icon,
   label,
+  tip: customTip,
   active,
   collapsed,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  /** Optional richer hover hint. Defaults to `label`. */
+  tip?: string;
   active: boolean;
   collapsed: boolean;
   onClick: () => void;
@@ -2079,11 +2533,12 @@ function NavRailButton({
   const classes = ['nav-rail-item'];
   if (active) classes.push('active');
   if (collapsed) classes.push('collapsed');
+  const base = customTip ?? label;
   const tip = active
     ? collapsed
-      ? `Show sidebar — ${label} (⌘B)`
-      : `Hide sidebar — ${label} (⌘B)`
-    : label;
+      ? `Show sidebar — ${base} (⌘B)`
+      : `Hide sidebar — ${base} (⌘B)`
+    : base;
   return (
     <button
       type="button"
@@ -2098,188 +2553,3 @@ function NavRailButton({
   );
 }
 
-interface PatchRecord {
-  id: string;
-  target: string;
-  op:
-    | { kind: 'setField'; fieldPath: string; valueJson: string }
-    | { kind: 'rawSplice'; offset: number; bytes: unknown }
-    | { kind: 'setLamports'; lamports: bigint | string }
-    | { kind: 'setOwner'; owner: string };
-  createdAt: number;
-  enabled: boolean;
-}
-
-function PatchesPanel({
-  project,
-  activeSessionId,
-  onChange,
-}: {
-  project: Project;
-  activeSessionId: string | null;
-  onChange: () => void;
-}): JSX.Element {
-  const [sessionPatches, setSessionPatches] = useState<PatchRecord[]>([]);
-
-  useEffect(() => {
-    if (!activeSessionId) {
-      setSessionPatches([]);
-      return;
-    }
-    void api
-      .call<PatchRecord[]>('patch.list', { scope: 'session', scopeId: activeSessionId })
-      .then(setSessionPatches);
-  }, [activeSessionId, project]);
-
-  const toggle = async (
-    scope: 'project' | 'session',
-    scopeId: string,
-    patchId: string,
-    enabled: boolean,
-  ): Promise<void> => {
-    await api.call('patch.toggle', { scope, scopeId, patchId, enabled });
-    onChange();
-  };
-  const remove = async (
-    scope: 'project' | 'session',
-    scopeId: string,
-    patchId: string,
-  ): Promise<void> => {
-    await api.call('patch.remove', { scope, scopeId, patchId });
-    onChange();
-  };
-
-  const opSummary = (op: PatchRecord['op']): { kind: string; detail: string; full: string } => {
-    if (op.kind === 'setField') {
-      const trimmed = op.valueJson.length > 28 ? `${op.valueJson.slice(0, 28)}…` : op.valueJson;
-      return {
-        kind: 'setField',
-        detail: `${op.fieldPath} = ${trimmed}`,
-        full: `${op.fieldPath} = ${op.valueJson}`,
-      };
-    }
-    if (op.kind === 'setLamports') {
-      return {
-        kind: 'setLamports',
-        detail: `lamports = ${op.lamports.toString()}`,
-        full: `lamports = ${op.lamports.toString()}`,
-      };
-    }
-    if (op.kind === 'setOwner') {
-      return {
-        kind: 'setOwner',
-        detail: `owner = ${op.owner.slice(0, 8)}…${op.owner.slice(-4)}`,
-        full: `owner = ${op.owner}`,
-      };
-    }
-    return { kind: 'rawSplice', detail: `splice at offset ${op.offset}`, full: JSON.stringify(op) };
-  };
-
-  const renderList = (
-    list: PatchRecord[],
-    scope: 'project' | 'session',
-    scopeId: string,
-  ): JSX.Element => {
-    if (list.length === 0) {
-      return (
-        <div style={{ color: 'var(--text-dim)', padding: '10px 4px', fontSize: 12 }}>
-          no {scope} patches yet
-        </div>
-      );
-    }
-    return (
-      <table className="acc-table">
-        <thead>
-          <tr>
-            <th style={{ width: 110 }}>Target</th>
-            <th style={{ width: 100 }}>Op</th>
-            <th>Detail</th>
-            <th style={{ width: 60 }}>On</th>
-            <th style={{ width: 70 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((p) => {
-            const summary = opSummary(p.op);
-            return (
-              <tr key={p.id} style={{ opacity: p.enabled ? 1 : 0.55 }}>
-                <td className="mono" title={p.target}>
-                  {p.target.slice(0, 4)}…{p.target.slice(-4)}
-                </td>
-                <td>
-                  <span className="badge">{summary.kind}</span>
-                </td>
-                <td className="mono" style={{ fontSize: 11 }} title={summary.full}>
-                  {summary.detail}
-                </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={p.enabled}
-                    onChange={(e) => {
-                      void toggle(scope, scopeId, p.id, e.target.checked);
-                    }}
-                  />
-                </td>
-                <td>
-                  <Button variant="danger" size="xs" onClick={() => void remove(scope, scopeId, p.id)}>
-                    <Trash2 size={11} aria-hidden /> Delete
-                  </Button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  };
-
-  const projectPatches = project.patches as PatchRecord[];
-
-  return (
-    <>
-      <div className="panel">
-        <div className="panel-h2-row">
-          <h2>
-            Project patches
-            <span
-              className="muted"
-              style={{ marginLeft: 8, fontSize: 10, textTransform: 'none' }}
-            >
-              apply to every session · {projectPatches.length}
-            </span>
-          </h2>
-        </div>
-        {renderList(projectPatches, 'project', project.id)}
-      </div>
-
-      <div className="panel">
-        <div className="panel-h2-row">
-          <h2>
-            Session patches
-            {activeSessionId && (
-              <span
-                className="muted"
-                style={{ marginLeft: 8, fontSize: 10, textTransform: 'none' }}
-              >
-                · {sessionPatches.length}
-              </span>
-            )}
-          </h2>
-        </div>
-        {activeSessionId ? (
-          renderList(sessionPatches, 'session', activeSessionId)
-        ) : (
-          <div style={{ color: 'var(--text-dim)', padding: 8, fontSize: 12 }}>
-            pick a session in the sidebar to view its patches
-          </div>
-        )}
-      </div>
-
-      <div style={{ color: 'var(--text-dim)', fontSize: 11, padding: '8px 4px' }}>
-        ⓘ Right-click an account in the sidebar → "Patch fields…" to create a new patch. Project
-        patches re-apply on every session open. Session patches affect only the current session.
-      </div>
-    </>
-  );
-}

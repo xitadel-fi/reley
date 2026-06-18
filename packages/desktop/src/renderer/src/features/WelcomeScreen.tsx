@@ -1,4 +1,13 @@
-import { Clock, FolderOpen, FolderPlus, Pin, Trash2 } from 'lucide-react';
+import {
+  Clock,
+  FlaskConical,
+  FolderOpen,
+  FolderPlus,
+  GitCompare,
+  History as HistoryIcon,
+  Pin,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
@@ -193,8 +202,50 @@ export function WelcomeScreen(): JSX.Element {
             </div>
           </section>
 
-          {/* Recents */}
-          <section>
+          {/* Try-the-demo card. One click creates a fully-bootstrapped
+              project in ~/Documents/Relay and opens it. Newbie path
+              shortcut — skips the New Project form entirely. */}
+          <section className="mb-10">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await api.call('app.newDemoProject');
+                } catch (e) {
+                  toast.error(String(e));
+                }
+              }}
+              className={[
+                'w-full text-left rounded-lg border border-accent/30 bg-accent/5 p-4',
+                'hover:border-accent hover:bg-accent/10 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+              ].join(' ')}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="inline-flex items-center justify-center w-10 h-10 rounded bg-accent/20 text-accent shrink-0"
+                  aria-hidden
+                >
+                  <FlaskConical size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-text">
+                    Try the demo — zero setup
+                  </div>
+                  <div className="text-2xs text-text-muted mt-0.5 leading-relaxed">
+                    Spins up a fresh project with SPL Token, Token-2022, ATA, System programs
+                    pre-attached, a funded default-payer keypair, and a sandbox ready for
+                    txs. Lands in <code className="font-mono">~/Documents/Relay/</code>.
+                  </div>
+                </div>
+                <span className="text-2xs text-accent shrink-0 font-mono">→</span>
+              </div>
+            </button>
+          </section>
+
+          {/* Recents — surfaced above the concept tiles since returning users
+              jump straight to one of their existing projects. */}
+          <section className="mb-14">
             <div className="flex items-baseline justify-between mb-4">
               <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold">
                 Recent projects
@@ -234,6 +285,35 @@ export function WelcomeScreen(): JSX.Element {
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* What can Relay do? — three concept tiles. Click any to open the
+              new-project sheet preloaded with that intent so the goal picker
+              inside the project lands on the right tab. */}
+          <section>
+            <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold mb-4">
+              What can Relay do?
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <UseCaseTile
+                icon={<FlaskConical size={18} aria-hidden />}
+                title="Test a program"
+                description="Multi-case test suites with per-step expectations on tx outcome + account state. Never halts on tx fail."
+                onClick={() => setSheetOpen(true)}
+              />
+              <UseCaseTile
+                icon={<GitCompare size={18} aria-hidden />}
+                title="Compare V1 vs V2"
+                description="Pin two program versions to one sandbox. Diff CU, logs, decoded state side-by-side."
+                onClick={() => setSheetOpen(true)}
+              />
+              <UseCaseTile
+                icon={<HistoryIcon size={18} aria-hidden />}
+                title="Replay a mainnet tx"
+                description="Paste a signature → auto-clone deps → patch state → re-run locally."
+                onClick={() => setSheetOpen(true)}
+              />
+            </div>
           </section>
         </div>
       </div>
@@ -322,6 +402,39 @@ export function WelcomeScreen(): JSX.Element {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function UseCaseTile({
+  icon,
+  title,
+  description,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex flex-col gap-2 text-left rounded-md border border-border bg-surface-0 p-4',
+        'hover:border-accent hover:bg-accent/5 transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+      ].join(' ')}
+    >
+      <span
+        className="inline-flex items-center justify-center w-8 h-8 rounded bg-accent/15 text-accent shrink-0"
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <div className="font-medium text-sm text-text">{title}</div>
+      <div className="text-2xs text-text-muted leading-relaxed">{description}</div>
+    </button>
   );
 }
 

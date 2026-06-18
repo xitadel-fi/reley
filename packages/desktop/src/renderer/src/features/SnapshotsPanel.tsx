@@ -2,14 +2,7 @@ import { Camera, GitFork, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
-import {
-  Button,
-  Empty,
-  ErrorState,
-  Field,
-  Input,
-  Spinner,
-} from '../ui';
+import { Button, Empty, ErrorState, Input, Spinner } from '../ui';
 
 interface SnapshotRef {
   id: string;
@@ -58,11 +51,15 @@ export function SnapshotsPanel({
 
   if (!activeSessionId) {
     return (
-      <Empty
-        icon={<Camera size={20} aria-hidden />}
-        title="No session selected"
-        description="Pick a session in the sidebar to manage snapshots."
-      />
+      <div className="entity-detail">
+        <div className="entity-detail-section">
+          <Empty
+            icon={<Camera size={20} aria-hidden />}
+            title="No sandbox selected"
+            description="Pick a sandbox in the sidebar to manage snapshots."
+          />
+        </div>
+      </div>
     );
   }
 
@@ -117,102 +114,115 @@ export function SnapshotsPanel({
   const snaps = session?.snapshots ?? [];
 
   return (
-    <div className="panel">
-      <div className="flex items-baseline justify-between mb-2 flex-wrap gap-1">
-        <h2 className="m-0">
-          Snapshots <span className="text-sm font-normal text-text-muted">· {session?.name}</span>
-        </h2>
-        <span className="text-2xs text-text-subtle">{snaps.length} saved</span>
-      </div>
-      <div className="text-xs text-text-muted mb-3">
-        Capture and restore session state. Fork branches into a new session.
+    <div className="entity-detail">
+      <div className="entity-detail-hero">
+        <div className="entity-detail-hero-main">
+          <span className="entity-detail-hero-icon" aria-hidden>
+            <Camera size={22} />
+          </span>
+          <div className="entity-detail-hero-text">
+            <div className="entity-detail-hero-title-row">
+              <h1 className="entity-detail-hero-title">Snapshots</h1>
+              <span className="entity-pill entity-pill-workflow">
+                {session?.name ?? 'sandbox'}
+              </span>
+            </div>
+            <p className="entity-detail-hero-desc">
+              Capture and restore sandbox state. Fork branches state into a new sandbox.
+            </p>
+          </div>
+        </div>
       </div>
 
-      {err && <ErrorState title="Snapshot error" message={err} />}
+      {err && (
+        <div className="entity-detail-section">
+          <ErrorState title="Snapshot error" message={err} />
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mb-4">
-        <Field label="Snapshot name">
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Save current state</h3>
+          <span className="entity-detail-section-meta">create a new snapshot</span>
+        </div>
+        <div className="snapshot-save-row">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="pre-swap / after-airdrop / clean"
+            className="flex-1"
           />
-        </Field>
-        <div className="self-end">
           <Button variant="primary" size="md" disabled={!name.trim() || busy} onClick={save}>
-            {busy ? <Spinner size={12} /> : <Camera size={12} aria-hidden />} Save state
+            {busy ? <Spinner size={12} /> : <Camera size={12} aria-hidden />} Save
           </Button>
         </div>
       </div>
 
-      {snaps.length === 0 ? (
-        <Empty
-          size="sm"
-          icon={<Camera size={18} aria-hidden />}
-          title="No snapshots yet"
-          description="Save the current state above to create one."
-        />
-      ) : (
-        <div className="rounded-md border border-border overflow-hidden">
-          <table className="w-full text-xs">
-            <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
-              <tr>
-                <th className="text-left font-medium px-3 py-1.5">Name</th>
-                <th className="text-left font-medium px-3 py-1.5">Fingerprint</th>
-                <th className="text-left font-medium px-3 py-1.5">Created</th>
-                <th className="px-3 py-1.5 w-44" />
-              </tr>
-            </thead>
-            <tbody>
-              {snaps.map((s) => (
-                <tr key={s.id} className="border-t border-border hover:bg-surface-1/40">
-                  <td className="px-3 py-1.5 text-text">{s.name}</td>
-                  <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                    {s.fingerprint ? `${s.fingerprint.slice(0, 12)}…` : '—'}
-                  </td>
-                  <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                    {new Date(s.createdAt).toISOString().slice(0, 19)}
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <div className="flex gap-1 justify-end">
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        title="Restore state only (keep current pinned versions)"
-                        onClick={() => void restore(s.id, false)}
-                      >
-                        <RotateCcw size={11} aria-hidden /> Restore
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        title="Restore state AND the program-version overrides captured at save"
-                        onClick={() => void restore(s.id, true)}
-                      >
-                        + versions
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={async () => {
-                          const forkName = await dialogs.prompt({
-                            title: 'Fork into new session',
-                            label: 'New session name',
-                            initial: `${s.name}-fork`,
-                          });
-                          if (forkName) void fork(s.id, forkName);
-                        }}
-                      >
-                        <GitFork size={11} aria-hidden /> Fork
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Saved snapshots</h3>
+          <span className="entity-detail-section-meta">
+            {snaps.length} snapshot{snaps.length === 1 ? '' : 's'}
+          </span>
         </div>
-      )}
+        {snaps.length === 0 ? (
+          <Empty
+            size="sm"
+            icon={<Camera size={18} aria-hidden />}
+            title="No snapshots yet"
+            description="Save the current state above to create one."
+          />
+        ) : (
+          <ol className="snapshot-grid">
+            {snaps.map((s) => (
+              <li key={s.id} className="snapshot-card">
+                <div className="snapshot-card-head">
+                  <Camera size={12} className="text-text-subtle" aria-hidden />
+                  <span className="snapshot-card-name">{s.name}</span>
+                </div>
+                <div className="snapshot-card-meta font-mono">
+                  <span title={s.fingerprint ?? ''}>
+                    {s.fingerprint ? `${s.fingerprint.slice(0, 10)}…` : '—'}
+                  </span>
+                  <span>{new Date(s.createdAt).toISOString().slice(0, 19).replace('T', ' ')}</span>
+                </div>
+                <div className="snapshot-card-actions">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    title="Restore state only"
+                    onClick={() => void restore(s.id, false)}
+                  >
+                    <RotateCcw size={11} aria-hidden /> Restore
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    title="Restore + program-version overrides"
+                    onClick={() => void restore(s.id, true)}
+                  >
+                    + versions
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={async () => {
+                      const forkName = await dialogs.prompt({
+                        title: 'Fork into new sandbox',
+                        label: 'New sandbox name',
+                        initial: `${s.name}-fork`,
+                      });
+                      if (forkName) void fork(s.id, forkName);
+                    }}
+                  >
+                    <GitFork size={11} aria-hidden /> Fork
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }

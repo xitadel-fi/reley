@@ -115,12 +115,12 @@ export function PatchAccountForm({
 
       {err && <ErrorState title="Failed to save patch" message={err} />}
 
-      <Field label="Scope" help="Project patches apply to every session; session patches to one.">
+      <Field label="Scope" help="Project patches apply to every sandbox; sandbox patches to one.">
         <Tabs value={scope} onValueChange={(v) => setScope(v as 'project' | 'session')}>
           <TabsList>
             <TabsTrigger value="project">Project</TabsTrigger>
             <TabsTrigger value="session" disabled={!sessionId}>
-              Session
+              Sandbox
             </TabsTrigger>
           </TabsList>
         </Tabs>

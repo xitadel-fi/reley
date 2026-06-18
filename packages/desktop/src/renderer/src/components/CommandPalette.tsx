@@ -105,7 +105,7 @@ export function CommandPalette({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command, project, program, or session…"
+            placeholder="Type a command, project, program, or sandbox…"
             className="flex-1 bg-transparent border-0 outline-none text-sm text-text placeholder:text-text-subtle"
             onKeyDown={(e) => {
               if (e.key === 'Escape') onClose();

@@ -27,6 +27,23 @@ export interface TxTemplate {
   airdropLamports: string | null;
   createdAt: number;
   updatedAt: number;
+  /** Optional parent folder id. Null/undefined → root. */
+  folderId?: Uuid | null;
+}
+
+/**
+ * Folder for grouping sidebar items by section. Items reference a folder
+ * via their own `folderId` field; the folder tree itself is a flat list
+ * with optional `parentId` to nest folders.
+ */
+export type FolderSection = 'programs' | 'templates' | 'workflows' | 'testSuites' | 'patches';
+
+export interface TreeFolder {
+  id: Uuid;
+  name: string;
+  parentId: Uuid | null;
+  section: FolderSection;
+  createdAt: number;
 }
 
 export type WorkflowStep =
@@ -53,6 +70,9 @@ export type WorkflowStep =
   | { kind: 'warpSlot'; id: Uuid; name: string; slot: string }
   | { kind: 'expireBlockhash'; id: Uuid; name: string }
   | { kind: 'resetSession'; id: Uuid; name: string }
+  // Alias kind — same semantics as `resetSession`. New saves use this; old
+  // saves carrying the legacy literal still parse.
+  | { kind: 'resetSandbox'; id: Uuid; name: string }
   /**
    * Persistent switch of the session-level program version pin. Unlike the
    * per-tx-step `programVersionOverrides` (which restores after the step),
@@ -74,6 +94,7 @@ export interface Workflow {
   steps: WorkflowStep[];
   createdAt: number;
   updatedAt: number;
+  folderId?: Uuid | null;
 }
 
 export interface WorkflowStepResult {
@@ -152,6 +173,7 @@ export interface TestSuite {
   cases: TestCase[];
   createdAt: number;
   updatedAt: number;
+  folderId?: Uuid | null;
 }
 
 export interface TestExpectationResult {
@@ -212,6 +234,12 @@ export interface Project {
   txTemplates: TxTemplate[];
   workflows: Workflow[];
   testSuites: TestSuite[];
+  /**
+   * Optional folder tree for grouping sidebar items. Items reference their
+   * folder via their own `folderId`. Items without a folderId render at the
+   * root of their section. Schema-backwards-compat: undefined → no folders.
+   */
+  folders?: TreeFolder[];
   createdAt: number;
   lastOpenedAt: number;
   pinned: boolean;

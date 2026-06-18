@@ -63,24 +63,38 @@ export function ReplayPanel({
     }
   };
 
-  const verdictVariant = (v: ReplayResult['verdict']): 'success' | 'warning' | 'danger' => {
-    if (v === 'match') return 'success';
-    if (v === 'divergent') return 'warning';
-    return 'danger';
-  };
-
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <h2 className="m-0 mb-1">Replay mainnet transaction</h2>
-        <div className="text-xs text-text-muted mb-3">
-          Fetches tx, resolves ALT lookups, hydrates state at slot−1, executes in LiteSVM, diffs vs
-          on-chain. Archive RPC required for reliable slot−1 reads.
+    <div className="entity-detail">
+      <div className="entity-detail-hero">
+        <div className="entity-detail-hero-main">
+          <span className="entity-detail-hero-icon" aria-hidden>
+            <History size={22} />
+          </span>
+          <div className="entity-detail-hero-text">
+            <div className="entity-detail-hero-title-row">
+              <h1 className="entity-detail-hero-title">Replay mainnet tx</h1>
+              <span className="entity-pill entity-pill-workflow">forensics</span>
+            </div>
+            <p className="entity-detail-hero-desc">
+              Fetch tx, resolve ALT lookups, hydrate state at slot−1, execute in LiteSVM,
+              diff vs on-chain. Archive RPC recommended for reliable slot−1 reads.
+            </p>
+          </div>
         </div>
+      </div>
 
-        {err && <ErrorState title="Replay failed" message={err} />}
+      {err && (
+        <div className="entity-detail-section">
+          <ErrorState title="Replay failed" message={err} />
+        </div>
+      )}
 
-        <div className="flex flex-col gap-3">
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Input</h3>
+          <span className="entity-detail-section-meta">paste signature, run</span>
+        </div>
+        <div className="replay-input-grid">
           <Field label="Transaction signature" required>
             <Input
               value={signature}
@@ -98,8 +112,7 @@ export function ReplayPanel({
             />
           </Field>
         </div>
-
-        <div className="flex items-center justify-end gap-2 pt-3">
+        <div className="flex justify-end mt-3">
           <Button variant="primary" size="md" disabled={busy || !signature.trim()} onClick={submit}>
             {busy ? (
               <>
@@ -115,34 +128,57 @@ export function ReplayPanel({
       </div>
 
       {result && (
-        <div className="panel">
-          <header className="flex items-start gap-3 mb-3 flex-wrap">
-            <span
-              className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-surface-2 text-text-muted shrink-0"
-              aria-hidden
-            >
-              <History size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 className="m-0 text-md font-semibold inline-flex items-center gap-2 flex-wrap">
-                Verdict
-                <Badge size="md" variant={verdictVariant(result.verdict)}>
-                  {result.verdict.toUpperCase()}
-                </Badge>
-              </h2>
-              <div className="text-xs text-text-muted mt-0.5">
-                slot <span className="font-mono">{result.slot.toString()}</span> · hydrated{' '}
-                {result.hydratedAccounts.length} accounts · loaded{' '}
-                {result.loadedPrograms.length} programs
+        <>
+          <div className="entity-detail-kpis">
+            <div className={`entity-kpi tone-${result.verdict === 'match' ? 'good' : 'bad'}`}>
+              <div className="entity-kpi-head">
+                <span className="entity-kpi-icon" aria-hidden>
+                  <Check size={14} />
+                </span>
+                <span className="entity-kpi-label">Verdict</span>
               </div>
+              <div className="entity-kpi-value">{result.verdict.toUpperCase()}</div>
             </div>
-          </header>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SideColumn title="On-chain" side={result.onChain} />
-            <SideColumn title="Local" side={result.local} />
+            <div className="entity-kpi">
+              <div className="entity-kpi-head">
+                <span className="entity-kpi-icon" aria-hidden>
+                  <History size={14} />
+                </span>
+                <span className="entity-kpi-label">Slot</span>
+              </div>
+              <div className="entity-kpi-value">{result.slot.toString()}</div>
+            </div>
+            <div className="entity-kpi">
+              <div className="entity-kpi-head">
+                <span className="entity-kpi-icon" aria-hidden>
+                  <Check size={14} />
+                </span>
+                <span className="entity-kpi-label">Accounts</span>
+              </div>
+              <div className="entity-kpi-value">{result.hydratedAccounts.length}</div>
+            </div>
+            <div className="entity-kpi">
+              <div className="entity-kpi-head">
+                <span className="entity-kpi-icon" aria-hidden>
+                  <Check size={14} />
+                </span>
+                <span className="entity-kpi-label">Programs</span>
+              </div>
+              <div className="entity-kpi-value">{result.loadedPrograms.length}</div>
+            </div>
           </div>
-        </div>
+
+          <div className="entity-detail-section">
+            <div className="entity-detail-section-head">
+              <h3 className="entity-detail-section-title">Execution diff</h3>
+              <span className="entity-detail-section-meta">on-chain vs local</span>
+            </div>
+            <div className="replay-side-grid">
+              <SideColumn title="On-chain" side={result.onChain} />
+              <SideColumn title="Local" side={result.local} />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

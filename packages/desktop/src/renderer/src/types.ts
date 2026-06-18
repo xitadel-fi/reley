@@ -38,6 +38,22 @@ export interface ProgramEntry {
   clonedAtSlot: string | null;
   versions: ProgramVersion[];
   activeVersionId: string;
+  folderId?: string | null;
+}
+
+export type FolderSection =
+  | 'programs'
+  | 'templates'
+  | 'workflows'
+  | 'testSuites'
+  | 'patches';
+
+export interface TreeFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  section: FolderSection;
+  createdAt: number;
 }
 
 export interface Project {
@@ -51,7 +67,16 @@ export interface Project {
   sessionIds: string[];
   keypairRefs: string[];
   scripts: unknown[];
-  txTemplates?: unknown[];
+  txTemplates?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    folderId?: string | null;
+    [k: string]: unknown;
+  }>;
+  workflows?: unknown[];
+  testSuites?: unknown[];
+  folders?: TreeFolder[];
   createdAt: number;
   lastOpenedAt: number;
   pinned: boolean;

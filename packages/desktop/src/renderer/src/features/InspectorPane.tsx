@@ -26,8 +26,9 @@ import {
   Spinner,
 } from '../ui';
 import type { TraceNode } from './TxResultView';
+import { HelpPanel } from './HelpPanel';
 
-export type InspectorTab = 'details' | 'activity' | 'shortcuts';
+export type InspectorTab = 'details' | 'activity' | 'shortcuts' | 'help';
 
 interface TxRecord {
   id: string;
@@ -45,11 +46,13 @@ export function InspectorPane({
   sessions,
   activeSessionId,
   tab,
+  helpSkillId,
 }: {
   project: Project | null;
   sessions: SessionMeta[];
   activeSessionId: string | null;
   tab: InspectorTab;
+  helpSkillId?: string;
 }): JSX.Element {
   const [activity, setActivity] = useState<TxRecord[]>([]);
 
@@ -69,7 +72,14 @@ export function InspectorPane({
     ? Object.values(project.programs).reduce((n, p) => n + p.accounts.length, 0)
     : 0;
 
-  const tabLabel = tab === 'details' ? 'Details' : tab === 'activity' ? 'Activity' : 'Shortcuts';
+  const tabLabel =
+    tab === 'details'
+      ? 'Details'
+      : tab === 'activity'
+        ? 'Activity'
+        : tab === 'help'
+          ? 'Help'
+          : 'Shortcuts';
 
   return (
     <aside className="inspector">
@@ -94,6 +104,8 @@ export function InspectorPane({
       )}
 
       {tab === 'shortcuts' && <ShortcutsTab />}
+
+      {tab === 'help' && <HelpPanel initialSkillId={helpSkillId ?? 'relay-overview'} />}
     </aside>
   );
 }
@@ -218,15 +230,15 @@ function DetailsTab({
         <div className="grid grid-cols-2 gap-2">
           <StatCard label="programs" value={Object.keys(project.programs).length} />
           <StatCard label="accounts" value={accountCount} />
-          <StatCard label="sessions" value={sessions.length} />
+          <StatCard label="sandboxes" value={sessions.length} />
           <StatCard label="patches" value={project.patches.length} />
         </div>
       </section>
 
-      {/* Active session */}
+      {/* Active sandbox */}
       {activeSession && (
         <section>
-          <SectionTitle>Active session</SectionTitle>
+          <SectionTitle>Active sandbox</SectionTitle>
           <div className="text-sm font-medium text-text">{activeSession.name}</div>
           <div className="mt-1 text-2xs text-text-muted font-mono">
             {activeSession.accountCount} accounts · {activeSession.mutationCount} mutations
@@ -238,7 +250,7 @@ function DetailsTab({
       <section>
         <SectionTitle>RPC endpoint</SectionTitle>
         <div className="text-xs text-text-muted leading-relaxed mb-3">
-          Expose the active session via Solana-compatible JSON-RPC. Point @solana/web3.js or
+          Expose the active sandbox via Solana-compatible JSON-RPC. Point @solana/web3.js or
           anchor tests at the URL.
         </div>
 
@@ -313,13 +325,13 @@ function DetailsTab({
 
         {sessionUrl && (
           <div className="mt-3">
-            <SectionTitle>Session URL</SectionTitle>
+            <SectionTitle>Sandbox URL</SectionTitle>
             <div className="flex items-center gap-1 rounded border border-border bg-bg p-2">
               <Network size={11} className="text-text-muted shrink-0" aria-hidden />
               <span className="font-mono text-2xs text-text break-all flex-1 min-w-0">
                 {sessionUrl}
               </span>
-              <CopyChip value={sessionUrl} label="Copy session URL" />
+              <CopyChip value={sessionUrl} label="Copy sandbox URL" />
             </div>
             <div className="mt-2 text-2xs text-text-subtle">
               Example:{' '}
@@ -363,8 +375,8 @@ function ActivityTab({
       <Empty
         size="sm"
         icon={<ActivityIcon size={18} aria-hidden />}
-        title="No session selected"
-        description="Pick a session in the sidebar to see its activity."
+        title="No sandbox selected"
+        description="Pick a sandbox in the sidebar to see its activity."
       />
     );
   }
@@ -421,9 +433,9 @@ function ShortcutsTab(): JSX.Element {
     { keys: '⌘K', what: 'Open command palette' },
     { keys: '⌘B', what: 'Toggle left sidebar' },
     { keys: '⌘⌥B', what: 'Toggle right inspector' },
-    { keys: 'Right-click', what: 'Show actions for project / program / account / session' },
+    { keys: 'Right-click', what: 'Show actions for project / program / account / sandbox' },
     { keys: 'Click account', what: 'Open Inspector modal' },
-    { keys: 'Click session', what: 'Set as active session' },
+    { keys: 'Click sandbox', what: 'Set as active sandbox' },
     { keys: 'Click program', what: 'Expand / collapse accounts' },
     { keys: 'Esc', what: 'Close modal' },
     { keys: 'Enter', what: 'Submit prompt' },
@@ -436,7 +448,7 @@ function ShortcutsTab(): JSX.Element {
     },
     {
       title: 'Patch scopes',
-      body: 'Project patches apply to every session. Session patches apply to one session. Eval order: project → session.',
+      body: 'Project patches apply to every sandbox. Sandbox patches apply to one sandbox. Eval order: project → sandbox.',
     },
     {
       title: 'Built-in programs',

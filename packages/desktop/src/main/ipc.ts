@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs';
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, normalize, relative, resolve, sep } from 'node:path';
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { type RpcEndpoint, getAppStore } from './app-store';
 import { getProjectPathForWindow } from './project-windows';
 import {
@@ -102,6 +102,23 @@ async function handleAppMethod(
       const path = String(p.path);
       await focusOrOpenProjectWindow(path);
       return { path };
+    }
+
+    case 'app.newDemoProject': {
+      // One-click demo: create `~/Documents/Relay/demo-<ts>` with auto-bootstrap
+      // (default-payer, default sandbox, 6 SPL builtins pre-attached). User
+      // lands in a working state without any prior setup.
+      const home = app.getPath('documents');
+      const folder = join(home, 'Relay', `demo-${Date.now()}`);
+      await mkdir(folder, { recursive: true });
+      await createProjectFolder(folder, {
+        name: 'Relay Demo',
+        network: 'mainnet-beta',
+        rpcEndpointId: 'mainnet-public',
+        description: 'Auto-generated demo — explore Sandbox, Tx Builder, Tests, Workflows.',
+      });
+      await focusOrOpenProjectWindow(folder);
+      return { path: folder };
     }
 
     case 'app.showWelcome': {

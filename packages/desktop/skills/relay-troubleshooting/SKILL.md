@@ -1,6 +1,6 @@
 ---
 name: relay-troubleshooting
-description: Common Relay failure modes — invalid account data on MintTo, mint authority mismatch on cloned mainnet mints, missing signers, multi-sig signer mismatch, version-pin desync, snapshot replay failure, blank screen after session click, worker exit codes — and their fixes.
+description: Common Relay failure modes — invalid account data on MintTo, mint authority mismatch on cloned mainnet mints, missing signers, multi-sig signer mismatch, version-pin desync, snapshot replay failure, blank screen after sandbox click, worker exit codes — and their fixes.
 ---
 
 # Relay troubleshooting
@@ -74,10 +74,10 @@ additional signers is harmless (it's filtered out).
 
 ## "Wrong" program logs after switching project active version
 
-You switched a program's `activeVersionId` but a session shows the old
+You switched a program's `activeVersionId` but a sandbox shows the old
 behaviour.
 
-**Fix**: the session may have a sticky `programVersionOverrides[pid]`
+**Fix**: the sandbox may have a sticky `programVersionOverrides[pid]`
 pinning the old version (look for the pin badge next to the program in the
 sidebar, or call `session.getVersionPins`). Clear with
 `programVersion.pinForSession(sessionId, programId, null)` or via the
@@ -90,7 +90,7 @@ change.
 
 A v2 snapshot captures `programVersions` + `programVersionOverrides`. On
 `snapshot.restore`, pass `{ restoreVersions: true }` to also restore the
-captured project active versions + session overrides (default is **false** →
+captured project active versions + sandbox overrides (default is **false** →
 restores only sandbox state, leaves program version selection untouched).
 
 v1 snapshots have no version info — they're promoted to v2 on read but
@@ -114,7 +114,7 @@ delete `.relay.json` and re-create the project from Welcome.
 
 ---
 
-## Blank screen after clicking a session
+## Blank screen after clicking a sandbox
 
 React hook order violation — rare. Was fixed in TxBuilderPanel by moving
 all `useMemo` calls above the early-return for `!activeSessionId`. If you

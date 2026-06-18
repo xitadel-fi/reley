@@ -28,6 +28,7 @@ export type WorkflowStepInput =
   | { kind: 'warpSlot'; id: Uuid; name: string; slot: string }
   | { kind: 'expireBlockhash'; id: Uuid; name: string }
   | { kind: 'resetSession'; id: Uuid; name: string }
+  | { kind: 'resetSandbox'; id: Uuid; name: string }
   | {
       kind: 'setProgramVersion';
       id: Uuid;
@@ -111,7 +112,8 @@ export async function runWorkflow(
           });
           break;
 
-        case 'resetSession': {
+        case 'resetSession':
+        case 'resetSandbox': {
           ctx.sessions.reset(sessionId);
           runtime.invalidate(sessionId);
           results.push({
@@ -196,7 +198,8 @@ export async function runWorkflow(
             }
           }
           signTransaction(tx, signers);
-          const txResult = await runtime.sendTransaction(sessionId, tx.serialize());
+          const serialized = tx.serialize();
+          const txResult = await runtime.sendTransaction(sessionId, serialized);
           const session = ctx.sessions.get(sessionId);
           const trace = parseTrace(txResult.logs);
           session.txHistory.push({
@@ -219,6 +222,7 @@ export async function runWorkflow(
               error: null,
             },
             touchedAccounts: [],
+            rawTxBase64: Buffer.from(serialized).toString('base64'),
           });
           results.push({
             stepId: step.id,

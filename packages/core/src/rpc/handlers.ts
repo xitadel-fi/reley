@@ -1,6 +1,6 @@
-import { BorshInstructionCoder, type Idl } from '@coral-xyz/anchor';
+import { BorshInstructionCoder, Program as AnchorProgram, type Idl } from '@coral-xyz/anchor';
 import { ErrorCode, IpcMethod, type NetworkId, type PatchScope, RelayError } from '@relay/shared';
-import { PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { Cloner } from '../cloner/cloner.js';
 import { AnchorCoder, serializeDecoded } from '../patcher/anchor-coder.js';
 import { diffIdl } from '../patcher/idl-diff.js';
@@ -49,7 +49,398 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
   const runtime = new SessionRuntime(ctx);
   let solanaRpc: SolanaRpcServer | null = null;
 
-  return {
+  /**
+   * Decode a serialized VersionedTransaction into TxTemplateInstruction[]
+   * suitable for the project's tx-template store. Best-effort enrichment:
+   * pulls program label from the project, ix name + summary from IDL/native
+   * decoder when available.
+   */
+  async function decodeTxToTemplateIxs(
+    rawTxBase64: string,
+    project: { programs: Record<string, { label: string }> },
+    coreCtx: CoreContext,
+  ): Promise<
+    Array<{
+      programId: string;
+      programLabel: string;
+      instructionName: string;
+      summary: string;
+      accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
+      dataBase64: string;
+    }>
+  > {
+    const { VersionedTransaction } = await import('@solana/web3.js');
+    const bytes = new Uint8Array(Buffer.from(rawTxBase64, 'base64'));
+    const tx = VersionedTransaction.deserialize(bytes);
+    const message = tx.message;
+    const accountKeys = message.staticAccountKeys.map((k) => k.toBase58());
+    const numSigners = message.header.numRequiredSignatures;
+    const numReadonlySigners = message.header.numReadonlySignedAccounts;
+    const numReadonlyUnsigned = message.header.numReadonlyUnsignedAccounts;
+    const totalStatic = accountKeys.length;
+
+    const isSigner = (idx: number): boolean => idx < numSigners;
+    const isWritable = (idx: number): boolean => {
+      if (idx < numSigners) return idx < numSigners - numReadonlySigners;
+      const unsignedIdx = idx - numSigners;
+      const unsignedTotal = totalStatic - numSigners;
+      return unsignedIdx < unsignedTotal - numReadonlyUnsigned;
+    };
+
+    const out: Array<{
+      programId: string;
+      programLabel: string;
+      instructionName: string;
+      summary: string;
+      accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
+      dataBase64: string;
+    }> = [];
+
+    for (const cix of message.compiledInstructions) {
+      const programIdIndex = cix.programIdIndex;
+      const programId = accountKeys[programIdIndex] ?? '';
+      const accounts = Array.from(cix.accountKeyIndexes).map((idx) => ({
+        pubkey: accountKeys[idx] ?? '',
+        isSigner: isSigner(idx),
+        isWritable: isWritable(idx),
+      }));
+      const dataBase64 = Buffer.from(cix.data).toString('base64');
+      const programLabel = project.programs[programId]?.label ?? programId;
+
+      // Best-effort ix-name lookup via IDL or native registry.
+      let instructionName = '(unknown)';
+      let summary = `${accounts.length} accounts · ${cix.data.length} data bytes`;
+      const idl = await coreCtx.idls.get(programId).catch(() => null);
+      if (idl) {
+        try {
+          const coder = new BorshInstructionCoder(idl);
+          const decoded = coder.decode(Buffer.from(cix.data));
+          if (decoded) {
+            instructionName = decoded.name;
+            summary = `${instructionName} (${accounts.length} accts)`;
+          }
+        } catch {
+          /* not an Anchor ix — try native */
+        }
+      }
+      if (instructionName === '(unknown)') {
+        const native = decodeNativeIx(programId, new Uint8Array(cix.data));
+        if (native) {
+          instructionName = native.name;
+          summary = `${native.name} (${accounts.length} accts)`;
+        }
+      }
+
+      out.push({
+        programId,
+        programLabel,
+        instructionName,
+        summary,
+        accounts,
+        dataBase64,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Best-effort onchain IDL fetch. Returns `null` on any failure (no IDL,
+   * RPC down, decode error). Uses Anchor's standard IDL PDA + zstd
+   * decompress via Program.fetchIdl.
+   */
+  async function fetchOnchainIdl(programId: string, rpcUrl: string): Promise<Idl | null> {
+    try {
+      const connection = new Connection(rpcUrl);
+      // Anchor's fetchIdl only reads `provider.connection.getAccountInfo`.
+      // No wallet needed; we cast a minimal provider shape.
+      const provider = { connection, publicKey: new PublicKey('11111111111111111111111111111111') };
+      const idl = await AnchorProgram.fetchIdl(programId, provider as never);
+      return (idl as Idl | null) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Seed a fresh demo project with rich sample artifacts. Builds a concrete
+   * System-transfer instruction (programId = System, from = default-payer,
+   * to = stable placeholder) so the tx template + workflow + test suite are
+   * actually runnable end-to-end with no further setup.
+   */
+  async function seedDemoArtifacts(proj: {
+    id: string;
+    workflows: any[];
+    testSuites: any[];
+    txTemplates: any[];
+    patches: any[];
+    sessionIds: string[];
+    keypairRefs: string[];
+  }): Promise<void> {
+    const now = Date.now();
+    const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+    // Demo recipient — generate a fresh valid pubkey at seed time. Unique
+    // per demo project, no secret persisted (we only need an address).
+    const { Keypair: KeypairCtor } = await import('@solana/web3.js');
+    const RECIPIENT = KeypairCtor.generate().publicKey.toBase58();
+
+    // Resolve default-payer pubkey (auto-bootstrap step above created it).
+    let payerPubkey = RECIPIENT; // fallback so the template still parses
+    let payerKeypairId: string | null = null;
+    try {
+      const keypairs = await ctx.keypairs.list();
+      const def = keypairs.find((k) => k.id === proj.keypairRefs[0]);
+      if (def) {
+        payerPubkey = def.pubkey;
+        payerKeypairId = def.id;
+      }
+    } catch {
+      /* keypair store empty — fall through with placeholder */
+    }
+
+    // System Transfer instruction encoding:
+    //   discriminator u32 LE = 2 (Transfer)
+    //   amount       u64 LE
+    const encodeSystemTransfer = (lamports: bigint): string => {
+      const buf = Buffer.alloc(12);
+      buf.writeUInt32LE(2, 0);
+      buf.writeBigUInt64LE(lamports, 4);
+      return buf.toString('base64');
+    };
+
+    const buildTransferIx = (amount: bigint) => ({
+      programId: SYSTEM_PROGRAM_ID,
+      programLabel: 'system',
+      instructionName: 'transfer',
+      summary: `transfer ${(Number(amount) / 1e9).toFixed(3)} SOL · payer → recipient`,
+      accounts: [
+        { pubkey: payerPubkey, isSigner: true, isWritable: true },
+        { pubkey: RECIPIENT, isSigner: false, isWritable: true },
+      ],
+      dataBase64: encodeSystemTransfer(amount),
+    });
+
+    // ──────────── Tx Template ────────────
+    const transferTemplateId = crypto.randomUUID();
+    proj.txTemplates.push({
+      id: transferTemplateId,
+      name: 'demo: transfer 0.1 SOL',
+      description: 'System transfer from default-payer to a stable demo recipient.',
+      ixs: [buildTransferIx(100_000_000n)],
+      computeUnitLimit: null,
+      airdropLamports: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // ──────────── Workflow ────────────
+    proj.workflows.push({
+      id: crypto.randomUUID(),
+      name: 'demo: fund + transfer + warp',
+      description:
+        'Airdrop the payer, send 0.1 SOL, jump 1 hour, send again. Exercises tx + warp + blockhash expiry.',
+      steps: [
+        {
+          kind: 'airdrop',
+          id: crypto.randomUUID(),
+          name: 'fund payer (10 SOL)',
+          pubkey: payerPubkey,
+          lamports: '10000000000',
+        },
+        {
+          kind: 'tx',
+          id: crypto.randomUUID(),
+          name: 'transfer 0.1 SOL',
+          ixs: [buildTransferIx(100_000_000n)],
+          computeUnitLimit: null,
+          airdropPayerLamports: null,
+          payerKeypairId,
+          additionalSignerKeypairIds: [],
+          templateId: transferTemplateId,
+        },
+        {
+          kind: 'warpTime',
+          id: crypto.randomUUID(),
+          name: 'jump 1 hour',
+          seconds: 3600,
+        },
+        {
+          kind: 'expireBlockhash',
+          id: crypto.randomUUID(),
+          name: 'force blockhash refresh',
+        },
+        {
+          kind: 'tx',
+          id: crypto.randomUUID(),
+          name: 'transfer 0.05 SOL after warp',
+          ixs: [buildTransferIx(50_000_000n)],
+          computeUnitLimit: null,
+          airdropPayerLamports: null,
+          payerKeypairId,
+          additionalSignerKeypairIds: [],
+          templateId: transferTemplateId,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // ──────────── Test Suite ────────────
+    proj.testSuites.push({
+      id: crypto.randomUUID(),
+      name: 'demo: transfer happy + sad paths',
+      description:
+        'Covers a healthy transfer, an insufficient-funds rejection, and a warp-clock assertion.',
+      cases: [
+        {
+          id: crypto.randomUUID(),
+          name: 'happy path: transfer credits recipient',
+          description:
+            'Payer airdropped 10 SOL, transfers 0.1 SOL. Recipient must hold ≥ 0.1 SOL after.',
+          resetBefore: true,
+          steps: [
+            {
+              kind: 'airdrop',
+              id: crypto.randomUUID(),
+              name: 'fund payer',
+              pubkey: payerPubkey,
+              lamports: '10000000000',
+            },
+            {
+              kind: 'tx',
+              id: crypto.randomUUID(),
+              name: 'transfer 0.1 SOL',
+              ixs: [buildTransferIx(100_000_000n)],
+              computeUnitLimit: null,
+              airdropPayerLamports: null,
+              payerKeypairId,
+              additionalSignerKeypairIds: [],
+              templateId: transferTemplateId,
+              txExpectations: [{ kind: 'shouldSucceed', value: true }],
+              accountExpectations: [
+                {
+                  kind: 'lamports',
+                  address: RECIPIENT,
+                  op: 'ge',
+                  value: '100000000',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'sad path: insufficient funds rejected',
+          description:
+            'Payer airdropped 1 SOL, tries to transfer 1000 SOL. Expect tx failure with funds-related error.',
+          resetBefore: true,
+          steps: [
+            {
+              kind: 'airdrop',
+              id: crypto.randomUUID(),
+              name: 'fund payer (1 SOL only)',
+              pubkey: payerPubkey,
+              lamports: '1000000000',
+            },
+            {
+              kind: 'tx',
+              id: crypto.randomUUID(),
+              name: 'attempt overspend',
+              ixs: [buildTransferIx(1_000_000_000_000n)],
+              computeUnitLimit: null,
+              airdropPayerLamports: null,
+              payerKeypairId,
+              additionalSignerKeypairIds: [],
+              templateId: transferTemplateId,
+              txExpectations: [
+                { kind: 'shouldSucceed', value: false },
+                { kind: 'errorMessageContains', substring: 'insufficient' },
+              ],
+            },
+          ],
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'warp moves the clock',
+          description: '8-day warp must advance unix_timestamp; recipient must exist after airdrop.',
+          resetBefore: true,
+          steps: [
+            {
+              kind: 'airdrop',
+              id: crypto.randomUUID(),
+              name: 'seed recipient',
+              pubkey: RECIPIENT,
+              lamports: '500000000',
+              accountExpectations: [
+                {
+                  kind: 'accountExists',
+                  address: RECIPIENT,
+                  exists: true,
+                },
+              ],
+            },
+            {
+              kind: 'warpTime',
+              id: crypto.randomUUID(),
+              name: 'jump 8 days',
+              seconds: 8 * 86400,
+            },
+          ],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // ──────────── Patches ────────────
+    // Project-scope patch: pre-fund the demo recipient with 2 SOL on every
+    // sandbox open. Demonstrates the "always-on" patch pattern.
+    proj.patches.push({
+      id: crypto.randomUUID(),
+      target: RECIPIENT,
+      op: { kind: 'setLamports', lamports: 2_000_000_000n },
+      createdAt: now,
+      enabled: true,
+    });
+
+    // Sandbox-scope patch on the default sandbox: override recipient to 5
+    // SOL just for this sandbox. Shows how sandbox patches layer over
+    // project patches.
+    const defaultSandboxId = proj.sessionIds[0];
+    if (defaultSandboxId) {
+      try {
+        const session = ctx.sessions.get(defaultSandboxId);
+        session.sessionPatches.push({
+          id: crypto.randomUUID(),
+          target: RECIPIENT,
+          op: { kind: 'setLamports', lamports: 5_000_000_000n },
+          createdAt: now,
+          enabled: true,
+        });
+      } catch {
+        /* sandbox missing — skip */
+      }
+    }
+  }
+
+  /**
+   * Airdrop SOL to the project's first keypair (default-payer) on session
+   * create / first project open. Lets newbies send tx without thinking
+   * about funding.
+   */
+  async function fundDefaultPayer(sessionId: string, keypairRefs: string[]): Promise<void> {
+    const defaultId = keypairRefs[0];
+    if (!defaultId) return;
+    try {
+      const all = await ctx.keypairs.list();
+      const meta = all.find((k) => k.id === defaultId);
+      if (!meta) return;
+      await runtime.airdrop(sessionId, meta.pubkey, 100_000_000_000n);
+    } catch {
+      /* keypair store unavailable or pubkey missing — non-fatal */
+    }
+  }
+
+  const map: HandlerMap = {
     [IpcMethod.ProjectCreate]: async (p) => {
       const params = p as {
         name: string;
@@ -67,6 +458,74 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     [IpcMethod.ProjectOpen]: async (p) => {
       const { id } = p as { id: string };
       ctx.projects.touchOpened(id);
+      const proj = ctx.projects.get(id);
+
+      // Newbie autobootstrap — runs once on first ever open of a fresh
+      // project. Generates a default-payer keypair so tx-builder works
+      // immediately; the per-sandbox airdrop below funds it.
+      if (proj.keypairRefs.length === 0) {
+        try {
+          const kp = await ctx.keypairs.generate('default-payer');
+          proj.keypairRefs = [kp.id];
+        } catch {
+          /* keypair store unavailable — non-fatal */
+        }
+      }
+
+      // Auto-attach the common SVM-builtin programs (System, Token, ATA, etc).
+      // They're synthetic entries — no RPC clone, no ELF bytes — so adding
+      // them is essentially free and saves the newbie six clicks.
+      if (Object.keys(proj.programs).length === 0) {
+        const COMMON_BUILTINS = [
+          '11111111111111111111111111111111', // System
+          'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token
+          'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', // Token-2022
+          'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // ATA
+          'ComputeBudget111111111111111111111111111111',
+          'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr', // Memo v2
+        ];
+        for (const pid of COMMON_BUILTINS) {
+          if (proj.programs[pid] || !isBuiltinProgram(pid)) continue;
+          const descriptor = BUILTIN_PROGRAM_LIST.find((b) => b.programId === pid);
+          try {
+            const blobHash = await ctx.blobs.put(new Uint8Array(0));
+            ctx.projects.addProgram({
+              projectId: id,
+              programId: pid,
+              elfBlobHash: blobHash,
+              source: { kind: 'cloned', slot: 0n },
+              upgradeAuthority: null,
+              clonedAtSlot: 0n,
+              label: descriptor?.label,
+            });
+          } catch {
+            /* duplicate / store error — non-fatal */
+          }
+        }
+      }
+
+      // Auto-create a default sandbox on first open so newbies don't have to
+      // manually create one before doing anything. Idempotent: skips if any
+      // session already exists for this project.
+      if (proj.sessionIds.length === 0) {
+        const session = ctx.sessions.create({ projectId: id, name: 'default' });
+        proj.sessionIds = [session.id];
+        await fundDefaultPayer(session.id, proj.keypairRefs);
+      }
+
+      // Demo project: seed a sample tx template, workflow, test suite, and
+      // patches so the user sees working examples of every feature. Only
+      // runs on a fresh demo — keyed off the project name written by
+      // `app.newDemoProject`.
+      if (
+        proj.name === 'Relay Demo' &&
+        (proj.workflows?.length ?? 0) === 0 &&
+        (proj.testSuites?.length ?? 0) === 0 &&
+        (proj.txTemplates?.length ?? 0) === 0
+      ) {
+        await seedDemoArtifacts(proj);
+      }
+
       await persist();
       return ctx.projects.get(id);
     },
@@ -99,6 +558,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       const project = ctx.projects.get(projectId);
       const session = ctx.sessions.create({ projectId, name });
       project.sessionIds = [...project.sessionIds, session.id];
+      await fundDefaultPayer(session.id, project.keypairRefs);
       await persist();
       return session;
     },
@@ -254,8 +714,58 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           clonedAtSlot: cloned.slot,
         });
       }
+      // Try to fetch the Anchor IDL straight from chain + auto-attach. Silent
+      // on failure — many programs don't publish an IDL onchain. Skipped if
+      // an IDL is already attached for this program (manual or prior fetch).
+      const existingIdl = await ctx.idls.get(params.programId).catch(() => null);
+      if (!existingIdl) {
+        const onchain = await fetchOnchainIdl(params.programId, rpcUrl);
+        if (onchain) {
+          try {
+            await ctx.idls.attach(params.programId, onchain, 'onChain');
+          } catch {
+            /* attach failure non-fatal */
+          }
+        }
+      }
       await persist();
       return project.programs[params.programId];
+    },
+
+    [IpcMethod.ProgramAddLocal]: async (p) => {
+      const params = p as {
+        projectId: string;
+        programId: string;
+        label?: string;
+        bytesBase64: string;
+        filePath?: string;
+      };
+      const project = ctx.projects.get(params.projectId);
+      const bytes = new Uint8Array(Buffer.from(params.bytesBase64, 'base64'));
+      const blobHash = await ctx.blobs.put(bytes);
+      const source = { kind: 'localFile' as const, path: params.filePath ?? `(dropped:${params.label ?? params.programId})` };
+      const existing = project.programs[params.programId];
+      if (existing) {
+        // Treat as new version on the existing program.
+        const v = ctx.projects.addProgramVersion(params.projectId, params.programId, {
+          label: params.label ?? `local-${Date.now()}`,
+          elfBlobHash: blobHash,
+          source,
+        });
+        await persist();
+        return { kind: 'versionAdded', programId: params.programId, versionId: v.id };
+      }
+      ctx.projects.addProgram({
+        projectId: project.id,
+        programId: params.programId,
+        elfBlobHash: blobHash,
+        source,
+        upgradeAuthority: null,
+        clonedAtSlot: null,
+        label: params.label,
+      });
+      await persist();
+      return { kind: 'programAdded', programId: params.programId };
     },
 
     [IpcMethod.ProgramListBuiltins]: async () => BUILTIN_PROGRAM_LIST,
@@ -689,6 +1199,20 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       return ctx.idls.attach(programId, idl, 'manual', versionId ?? null);
     },
 
+    [IpcMethod.IdlFetchOnchain]: async (p) => {
+      const { projectId, programId, rpcUrl } = p as {
+        projectId: string;
+        programId: string;
+        rpcUrl?: string;
+      };
+      const project = ctx.projects.get(projectId);
+      const url = rpcUrl ?? env.resolveRpcUrl(project.rpcEndpointId);
+      const idl = await fetchOnchainIdl(programId, url);
+      if (!idl) return { found: false };
+      await ctx.idls.attach(programId, idl, 'onChain');
+      return { found: true, idl };
+    },
+
     [IpcMethod.IdlDetach]: async (p) => {
       const { programId, versionId } = p as { programId: string; versionId?: string | null };
       await ctx.idls.detach(programId, versionId ?? null);
@@ -909,6 +1433,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
 
       const result = await runtime.sendTransaction(params.sessionId, txBytes);
       const trace = parseTrace(result.logs);
+      const rawTxBase64 = Buffer.from(txBytes).toString('base64');
       const record = {
         id: crypto.randomUUID(),
         signature: null,
@@ -929,6 +1454,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           error: null,
         },
         touchedAccounts: [],
+        rawTxBase64,
       };
       session.txHistory.push(record);
       await persist();
@@ -993,6 +1519,169 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     [IpcMethod.TxTemplateList]: async (p) => {
       const { projectId } = p as { projectId: string };
       return ctx.projects.get(projectId).txTemplates;
+    },
+
+    [IpcMethod.ProjectFolderCreate]: async (p) => {
+      const { projectId, section, name, parentId } = p as {
+        projectId: string;
+        section: 'programs' | 'templates' | 'workflows' | 'testSuites' | 'patches';
+        name: string;
+        parentId?: string | null;
+      };
+      const project = ctx.projects.get(projectId);
+      if (!project.folders) project.folders = [];
+      const folder = {
+        id: crypto.randomUUID(),
+        name: name.trim() || 'New folder',
+        parentId: parentId ?? null,
+        section,
+        createdAt: Date.now(),
+      };
+      project.folders.push(folder);
+      await persist();
+      return folder;
+    },
+
+    [IpcMethod.ProjectFolderRename]: async (p) => {
+      const { projectId, folderId, name } = p as {
+        projectId: string;
+        folderId: string;
+        name: string;
+      };
+      const project = ctx.projects.get(projectId);
+      const f = (project.folders ?? []).find((x) => x.id === folderId);
+      if (!f) throw new RelayError(ErrorCode.NOT_FOUND, `folder not found: ${folderId}`);
+      f.name = name.trim() || f.name;
+      await persist();
+      return f;
+    },
+
+    [IpcMethod.ProjectFolderRemove]: async (p) => {
+      const { projectId, folderId, mode } = p as {
+        projectId: string;
+        folderId: string;
+        mode?: 'merge-up' | 'recursive';
+      };
+      const project = ctx.projects.get(projectId);
+      const folders = project.folders ?? [];
+      const target = folders.find((f) => f.id === folderId);
+      if (!target) return { ok: true };
+      // Gather descendants
+      const descendantIds = new Set<string>([folderId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const f of folders) {
+          if (f.parentId && descendantIds.has(f.parentId) && !descendantIds.has(f.id)) {
+            descendantIds.add(f.id);
+            changed = true;
+          }
+        }
+      }
+      const recursive = mode === 'recursive';
+      const detachIn = (collection: Array<{ folderId?: string | null }>, ids: Set<string>): void => {
+        for (const it of collection) {
+          if (it.folderId && ids.has(it.folderId)) it.folderId = null;
+        }
+      };
+      const itemsForSection = (sec: string): Array<{ folderId?: string | null }> => {
+        switch (sec) {
+          case 'templates':
+            return project.txTemplates as Array<{ folderId?: string | null }>;
+          case 'programs':
+            return Object.values(project.programs) as Array<{ folderId?: string | null }>;
+          case 'workflows':
+            return project.workflows as Array<{ folderId?: string | null }>;
+          case 'testSuites':
+            return project.testSuites as Array<{ folderId?: string | null }>;
+          case 'patches':
+            return project.patches as Array<{ folderId?: string | null }>;
+          default:
+            return [];
+        }
+      };
+      const items = itemsForSection(target.section);
+      if (recursive) {
+        detachIn(items, descendantIds);
+        project.folders = folders.filter((f) => !descendantIds.has(f.id));
+      } else {
+        for (const it of items) {
+          if (it.folderId === folderId) it.folderId = target.parentId;
+        }
+        for (const f of folders) {
+          if (f.parentId === folderId) f.parentId = target.parentId;
+        }
+        project.folders = folders.filter((f) => f.id !== folderId);
+      }
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.ProjectItemMove]: async (p) => {
+      const { projectId, kind, id, folderId } = p as {
+        projectId: string;
+        kind: 'template' | 'program' | 'workflow' | 'testSuite' | 'patch';
+        id: string;
+        folderId: string | null;
+      };
+      const project = ctx.projects.get(projectId);
+      let target: { folderId?: string | null } | undefined;
+      switch (kind) {
+        case 'template':
+          target = project.txTemplates.find((t) => t.id === id);
+          break;
+        case 'program':
+          target = project.programs[id];
+          break;
+        case 'workflow':
+          target = project.workflows.find((w) => w.id === id);
+          break;
+        case 'testSuite':
+          target = project.testSuites.find((s) => s.id === id);
+          break;
+        case 'patch':
+          target = project.patches.find((p2) => p2.id === id);
+          break;
+      }
+      if (!target) throw new RelayError(ErrorCode.NOT_FOUND, `${kind} not found: ${id}`);
+      target.folderId = folderId;
+      await persist();
+      return { ok: true };
+    },
+
+    [IpcMethod.TxHistoryToTemplate]: async (p) => {
+      const params = p as {
+        sessionId: string;
+        recordId: string;
+        name: string;
+        description?: string;
+      };
+      const session = ctx.sessions.get(params.sessionId);
+      const record = session.txHistory.find((r) => r.id === params.recordId);
+      if (!record) throw new RelayError(ErrorCode.NOT_FOUND, `tx record not found: ${params.recordId}`);
+      if (!record.rawTxBase64) {
+        throw new RelayError(
+          ErrorCode.INVALID_INPUT,
+          'this tx record was created before raw bytes were captured — cannot reconstruct',
+        );
+      }
+      const project = ctx.projects.get(session.projectId);
+      const ixs = await decodeTxToTemplateIxs(record.rawTxBase64, project, ctx);
+
+      const now = Date.now();
+      const tpl = {
+        id: crypto.randomUUID(),
+        name: params.name,
+        description: params.description ?? '',
+        ixs,
+        computeUnitLimit: null,
+        airdropLamports: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      project.txTemplates.push(tpl);
+      await persist();
+      return tpl;
     },
 
     [IpcMethod.WorkflowSave]: async (p) => {
@@ -1549,4 +2238,28 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       return { ok: true };
     },
   };
+
+  // ───────── Sandbox aliases ─────────
+  // Mirror every `session.*` handler under its `sandbox.*` name so new
+  // clients can use the new naming while old scripts keep working. Adds the
+  // aliases AFTER the map is built so we just copy existing fn refs.
+  const sandboxAliases: Array<[IpcMethod, IpcMethod]> = [
+    [IpcMethod.SandboxCreate, IpcMethod.SessionCreate],
+    [IpcMethod.SandboxList, IpcMethod.SessionList],
+    [IpcMethod.SandboxOpen, IpcMethod.SessionOpen],
+    [IpcMethod.SandboxRename, IpcMethod.SessionRename],
+    [IpcMethod.SandboxReset, IpcMethod.SessionReset],
+    [IpcMethod.SandboxDelete, IpcMethod.SessionDelete],
+    [IpcMethod.SandboxAirdrop, IpcMethod.SessionAirdrop],
+    [IpcMethod.SandboxWarpToSlot, IpcMethod.SessionWarpToSlot],
+    [IpcMethod.SandboxWarpByTime, IpcMethod.SessionWarpByTime],
+    [IpcMethod.SandboxExpireBlockhash, IpcMethod.SessionExpireBlockhash],
+    [IpcMethod.SandboxGetClock, IpcMethod.SessionGetClock],
+    [IpcMethod.SandboxGetVersionPins, IpcMethod.SessionGetVersionPins],
+  ];
+  // biome-ignore lint/suspicious/noExplicitAny: handler map index isn't typed by literal IpcMethod
+  for (const [alias, target] of sandboxAliases) {
+    (map as any)[alias] = (map as any)[target];
+  }
+  return map;
 }

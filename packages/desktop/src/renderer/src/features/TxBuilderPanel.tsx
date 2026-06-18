@@ -10,14 +10,15 @@ import {
   Pencil,
   Play,
   Save,
+  Sparkles,
   Trash2,
-  Unlink,
   X,
   Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
+import { HelpHint } from '../components/HelpHint';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import type { Project } from '../types';
@@ -106,14 +107,92 @@ interface InstructionsList {
   instructions: IdlInstruction[];
 }
 
+// Well-known account roles → pubkey. Used by the Tx Builder "Auto-fill"
+// button to populate accounts whose IDL name matches a known role. Names
+// are lowercased + snake-collapsed before matching.
+const ROLE_TO_PUBKEY: Record<string, string> = {
+  system_program: '11111111111111111111111111111111',
+  systemprogram: '11111111111111111111111111111111',
+  system: '11111111111111111111111111111111',
+  token_program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  tokenprogram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  spl_token: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  token_2022_program: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+  token2022program: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+  associated_token_program: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+  associatedtokenprogram: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+  ata_program: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+  rent: 'SysvarRent111111111111111111111111111111111',
+  rent_sysvar: 'SysvarRent111111111111111111111111111111111',
+  clock: 'SysvarC1ock11111111111111111111111111111111',
+  clock_sysvar: 'SysvarC1ock11111111111111111111111111111111',
+  instructions_sysvar: 'Sysvar1nstructions1111111111111111111111111',
+  ix_sysvar: 'Sysvar1nstructions1111111111111111111111111',
+  compute_budget_program: 'ComputeBudget111111111111111111111111111111',
+};
+
+const PAYER_ROLES = new Set([
+  'payer',
+  'fee_payer',
+  'feepayer',
+  'funder',
+  'authority',
+  'signer',
+  'owner',
+  'user',
+  'wallet',
+]);
+
+function normalizeRole(name: string): string {
+  return name
+    .replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
+    .replace(/^_/, '')
+    .replace(/__+/g, '_')
+    .toLowerCase();
+}
+
+function autofillAccounts(
+  prev: Record<string, string>,
+  ix: IdlInstruction,
+  keypairs: Array<{ id: string; label: string; pubkey: string }>,
+  payerId: string | null,
+): Record<string, string> {
+  const next = { ...prev };
+  const payerPubkey =
+    keypairs.find((k) => k.id === payerId)?.pubkey ??
+    keypairs.find((k) => k.label === 'default-payer')?.pubkey ??
+    keypairs[0]?.pubkey ??
+    null;
+  for (const acc of ix.accounts) {
+    if ((next[acc.name] ?? '').trim()) continue; // don't overwrite user input
+    const role = normalizeRole(acc.name);
+    if (ROLE_TO_PUBKEY[role]) {
+      next[acc.name] = ROLE_TO_PUBKEY[role];
+      continue;
+    }
+    if (PAYER_ROLES.has(role) && payerPubkey) {
+      next[acc.name] = payerPubkey;
+      continue;
+    }
+  }
+  return next;
+}
+
 type Mode = 'instruction' | 'raw';
 
 export function TxBuilderPanel({
   project,
   activeSessionId,
+  pendingTemplateId,
+  onTemplateConsumed,
+  onOpenHelp,
 }: {
   project: Project;
   activeSessionId: string | null;
+  /** When set, builder boots loaded with this template id (or blank on null). undefined = no-op. */
+  pendingTemplateId?: string | null | undefined;
+  onTemplateConsumed?: () => void;
+  onOpenHelp?: (skillId: string) => void;
 }): JSX.Element {
   const [programId, setProgramId] = useState<string>('');
   const [mode, setMode] = useState<Mode>('instruction');
@@ -159,6 +238,15 @@ export function TxBuilderPanel({
   useEffect(() => {
     reloadTemplates();
   }, [project.id]);
+
+  // Sync templates state whenever the prop's txTemplates list changes
+  // (e.g. sidebar inline rename → reloadProject → new array reference).
+  // Avoids stale dropdown labels.
+  useEffect(() => {
+    if (project.txTemplates) {
+      setTemplates(project.txTemplates as unknown as TxTemplate[]);
+    }
+  }, [project.txTemplates]);
 
   const updateLoadedTemplate = async (): Promise<void> => {
     if (!loadedTemplateId) return;
@@ -216,7 +304,7 @@ export function TxBuilderPanel({
         placeholder: 'e.g. mint setup',
       });
       if (!name?.trim()) return;
-      await api.call('tx.templateSave', {
+      const saved = await api.call<{ id: string }>('tx.templateSave', {
         projectId: project.id,
         name: name.trim(),
         ixs: ixs.map((d) => ({
@@ -231,10 +319,39 @@ export function TxBuilderPanel({
         airdropLamports: airdrop || null,
       });
       reloadTemplates();
+      // After Save-as-new, link the builder to the new template so the user
+      // is editing it going forward (same flow as if they had loaded it).
+      if (saved?.id) setLoadedTemplateId(saved.id);
     } catch (e) {
       setErr(String(e));
     }
   };
+
+  // Consume pendingTemplateId from parent. Null = clear to blank. String = load that template
+  // (waits for `templates` list to populate so the lookup succeeds).
+  useEffect(() => {
+    if (pendingTemplateId === undefined) return;
+    if (pendingTemplateId === null) {
+      setDrafts([]);
+      setCuLimit('');
+      setAirdrop('10000000000');
+      setProgramId('');
+      setSelectedIx(null);
+      setArgValues({});
+      setNamedAccounts({});
+      setDataHex('');
+      setAccounts([]);
+      setEditingDraftId(null);
+      setLoadedTemplateId(null);
+      onTemplateConsumed?.();
+      return;
+    }
+    if (templates.some((t) => t.id === pendingTemplateId)) {
+      loadTemplate(pendingTemplateId);
+      onTemplateConsumed?.();
+    }
+    // If not loaded yet, the effect re-fires once `templates` arrives.
+  }, [pendingTemplateId, templates]);
 
   const loadTemplate = (templateId: string): void => {
     if (!templateId) return;
@@ -335,8 +452,8 @@ export function TxBuilderPanel({
     return (
       <Empty
         icon={<GitBranch size={20} aria-hidden />}
-        title="No session selected"
-        description="Pick a session in the sidebar to start building transactions."
+        title="No sandbox selected"
+        description="Pick a sandbox in the sidebar to start building transactions."
       />
     );
   }
@@ -635,6 +752,12 @@ export function TxBuilderPanel({
       const payload = await buildPayload();
       const r = await api.call<TxSendResult>('tx.send', payload);
       setResult(r);
+      // Newbie cue: after a successful send, hint at saving as template
+      // (only when it wasn't already loaded from one). Click the "Save…"
+      // button in the Templates section above.
+      if (r.success && !loadedTemplateId) {
+        toast.info('Tx sent — tip: save as template above to reuse');
+      }
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -645,96 +768,49 @@ export function TxBuilderPanel({
   const totalIxCount = drafts.length + (programId ? 1 : 0);
   const blockingErrors = diagnostics.some((d) => d.severity === 'error');
 
+  const loadedTemplateName = loadedTemplateId
+    ? templates.find((t) => t.id === loadedTemplateId)?.name
+    : null;
+
   return (
     <div className="flex flex-col gap-4">
-      {/* ───── Templates ───── */}
-      <div className="panel">
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="m-0">Templates</h2>
-          <span className="text-2xs text-text-subtle">
-            {templates.length} saved
-          </span>
-        </div>
-        <div className="text-xs text-text-muted mb-3">
-          Save the current tx (drafts + form) as a named template. Reload anytime.
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Select
-            value={loadedTemplateId ?? ''}
-            onChange={(e) => loadTemplate(e.target.value)}
-            className="flex-1"
-          >
-            <option value="">— load template —</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({t.ixs.length} ix)
-              </option>
-            ))}
-          </Select>
-          {loadedTemplateId && (
+      {/* Compact template status row — full library lives in the left
+          sidebar. Builder only needs: which template is loaded + the
+          actions to save/update/unlink it. */}
+      <div className="flex items-center gap-2 text-xs text-text-muted">
+        {loadedTemplateId ? (
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <Save size={11} className="text-accent" aria-hidden />
+              Editing template{' '}
+              <span className="font-medium text-text">{loadedTemplateName ?? '(unnamed)'}</span>
+            </span>
             <Button
               variant="primary"
-              size="sm"
+              size="xs"
               onClick={() => void updateLoadedTemplate()}
               title="Overwrite the loaded template with current drafts"
             >
-              <Save size={12} aria-hidden /> Update
+              <Save size={11} aria-hidden /> Update
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={saveTemplate}>
-            Save as new…
-          </Button>
-          {loadedTemplateId && (
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setLoadedTemplateId(null)}
-              title="Detach from loaded template"
+              variant="outline"
+              size="xs"
+              onClick={saveTemplate}
+              title="Fork the current drafts into a brand-new template"
             >
-              <Unlink size={12} aria-hidden /> Unlink
+              Save as new template…
             </Button>
-          )}
-        </div>
-
-        {templates.length > 0 && (
-          <div className="mt-3 rounded-md border border-border overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
-                <tr>
-                  <th className="text-left font-medium px-3 py-1.5">Name</th>
-                  <th className="text-left font-medium px-3 py-1.5 w-12">Ix</th>
-                  <th className="text-left font-medium px-3 py-1.5">Updated</th>
-                  <th className="px-3 py-1.5 w-32" />
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((t) => (
-                  <tr key={t.id} className="border-t border-border hover:bg-surface-1/50">
-                    <td className="px-3 py-1.5 text-text">{t.name}</td>
-                    <td className="px-3 py-1.5 text-text-muted">{t.ixs.length}</td>
-                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                      {new Date(t.updatedAt).toISOString().slice(0, 19)}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="xs" onClick={() => loadTemplate(t.id)}>
-                          Load
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="xs"
-                          onClick={() => void deleteTemplate(t.id)}
-                        >
-                          <Trash2 size={11} aria-hidden />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          </>
+        ) : (
+          <>
+            <span className="text-text-subtle">
+              Tip: pick a template from the sidebar, or save your current draft below.
+            </span>
+            <Button variant="outline" size="xs" onClick={saveTemplate}>
+              Save as new template…
+            </Button>
+          </>
         )}
       </div>
 
@@ -883,7 +959,9 @@ export function TxBuilderPanel({
                     </span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="raw">Raw hex</TabsTrigger>
+                <TabsTrigger value="raw" title="Send pre-encoded instruction bytes. Advanced.">
+                  Raw bytes
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -949,8 +1027,22 @@ export function TxBuilderPanel({
                 )}
 
                 <div>
-                  <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-2">
-                    Accounts
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium">
+                      Accounts
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() =>
+                        setNamedAccounts((prev) =>
+                          autofillAccounts(prev, selectedIx, keypairs, payerId),
+                        )
+                      }
+                      title="Fill known account roles (system/token/ATA/payer) from project keypairs + SVM builtins."
+                    >
+                      <Sparkles size={11} aria-hidden /> Auto-fill
+                    </Button>
                   </div>
                   <div className="flex flex-col gap-2">
                     {selectedIx.accounts.map((acc, idx) => (
@@ -1105,14 +1197,33 @@ export function TxBuilderPanel({
           </div>
         )}
 
-        {/* Signing & budget */}
-        <div className="mt-5 pt-4 border-t border-border">
-          <div className="text-2xs uppercase tracking-wider text-text-subtle font-medium mb-3">
-            Signing & budget
-          </div>
+        {/* Signing & budget — collapsed by default for newbie clarity. Most
+            txs work fine with ephemeral payer + default CU. Power users open
+            this to override payer, add multi-sig, or bump compute limit. */}
+        <details className="mt-5 pt-4 border-t border-border builder-advanced">
+          <summary className="builder-advanced-summary">
+            <span className="text-2xs uppercase tracking-wider text-text-subtle font-medium">
+              Advanced · signing & budget
+            </span>
+            <span className="text-2xs text-text-subtle ml-auto">
+              {payerId ? `payer: ${keypairs.find((k) => k.id === payerId)?.label ?? '?'}` : 'ephemeral payer'}
+              {extraSignerIds.length > 0 ? ` · +${extraSignerIds.length} signer${extraSignerIds.length > 1 ? 's' : ''}` : ''}
+              {cuLimit ? ` · CU ${cuLimit}` : ''}
+            </span>
+          </summary>
 
           <Field
-            label="Pay fees with"
+            label={
+              <>
+                Pay fees with
+                <HelpHint
+                  label="Payer"
+                  hint="Keypair that signs the tx and pays the fee. Ephemeral = auto-generated + airdropped, no setup needed."
+                  skillId="relay-keypair"
+                  onOpen={onOpenHelp}
+                />
+              </>
+            }
             help={
               keypairs.length === 0
                 ? 'No keypairs. Add one in the Keypairs panel.'
@@ -1135,7 +1246,17 @@ export function TxBuilderPanel({
 
           {keypairs.length > 0 && (
             <Field
-              label="Additional signers"
+              label={
+                <>
+                  Additional signers
+                  <HelpHint
+                    label="Additional signers"
+                    hint="Extra keypairs that must sign. Needed when an instruction has more than one signer account (e.g., authority + payer)."
+                    skillId="relay-keypair"
+                    onOpen={onOpenHelp}
+                  />
+                </>
+              }
               help="Click to toggle. Required when an ix lists more than one signer account."
               className="mt-3"
             >
@@ -1177,7 +1298,17 @@ export function TxBuilderPanel({
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-            <Field label="Compute unit limit (optional)">
+            <Field
+              label={
+                <>
+                  Compute unit limit (optional)
+                  <HelpHint
+                    label="Compute unit limit"
+                    hint="Max compute budget for the tx. Solana caps at 1.4M. Default ~200k is fine for most ops; bump if you hit `exceeded CU`."
+                  />
+                </>
+              }
+            >
               <Input
                 value={cuLimit}
                 onChange={(e) => setCuLimit(e.target.value)}
@@ -1192,9 +1323,10 @@ export function TxBuilderPanel({
               />
             </Field>
           </div>
-        </div>
+        </details>
 
-        {/* Pre-flight diagnostics */}
+        {/* Pre-flight diagnostics — shown above the action bar so blockers
+            are visible before clicking Simulate/Submit. */}
         {diagnostics.length > 0 && (
           <div className="mt-4">
             <DiagnosticsPanel issues={diagnostics} />

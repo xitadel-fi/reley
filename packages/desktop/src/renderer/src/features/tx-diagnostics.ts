@@ -104,7 +104,7 @@ function checkTransferBeforeAta(ixs: DiagIx[]): Issue[] {
         title: 'Token Transfer destination may not be initialized',
         detail:
           `Instruction #${i + 1} transfers tokens to ${short(dest)}. If this ATA does ` +
-          `not yet exist in the session, the transfer fails. Add CreateIdempotent first ` +
+          `not yet exist in the sandbox, the transfer fails. Add CreateIdempotent first ` +
           `or confirm the account is already cloned.`,
         ixIndex: i,
       });

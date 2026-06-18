@@ -86,6 +86,7 @@ async function runOneStep(
         await runtime.expireBlockhash(sessionId);
         break;
       case 'resetSession':
+      case 'resetSandbox':
         ctx.sessions.reset(sessionId);
         runtime.invalidate(sessionId);
         break;
@@ -201,7 +202,8 @@ async function runTxStep(
       }
     }
     signTransaction(tx, signers);
-    const txResult = await runtime.sendTransaction(sessionId, tx.serialize());
+    const serialized = tx.serialize();
+    const txResult = await runtime.sendTransaction(sessionId, serialized);
     const session = ctx.sessions.get(sessionId);
     const trace = parseTrace(txResult.logs);
     session.txHistory.push({
@@ -224,6 +226,7 @@ async function runTxStep(
         error: null,
       },
       touchedAccounts: [],
+      rawTxBase64: Buffer.from(serialized).toString('base64'),
     });
     return {
       success: txResult.success,

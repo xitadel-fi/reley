@@ -1,12 +1,18 @@
 import {
+  Activity,
   ArrowLeft,
+  Calendar,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Clock,
+  Copy,
   Droplets,
   GitBranch,
+  Layers,
+  Pencil,
   Play,
   Plus,
   RefreshCcw,
@@ -14,6 +20,7 @@ import {
   Save,
   Send,
   SkipForward,
+  Timer,
   Trash2,
   X,
   XCircle,
@@ -22,6 +29,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
+import { FirstRunGuide } from '../components/FirstRunGuide';
+import { recordRun } from './AutomationsHome';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import { IxInspectButton } from './IxInspectModal';
@@ -44,6 +53,7 @@ type StepKind =
   | 'warpSlot'
   | 'expireBlockhash'
   | 'resetSession'
+  | 'resetSandbox'
   | 'setProgramVersion';
 
 interface BaseStep {
@@ -77,6 +87,7 @@ type Step =
   | (BaseStep & { kind: 'warpSlot'; slot: string })
   | (BaseStep & { kind: 'expireBlockhash' })
   | (BaseStep & { kind: 'resetSession' })
+  | (BaseStep & { kind: 'resetSandbox' })
   | (BaseStep & {
       kind: 'setProgramVersion';
       programId: string;
@@ -143,6 +154,7 @@ const defaultStep = (kind: StepKind): Step => {
     case 'expireBlockhash':
       return { ...base, kind };
     case 'resetSession':
+    case 'resetSandbox':
       return { ...base, kind };
     case 'setProgramVersion':
       return { ...base, kind, programId: '', versionId: null };
@@ -162,9 +174,42 @@ const prettyKind = (k: StepKind): string => {
     case 'expireBlockhash':
       return 'Expire blockhash';
     case 'resetSession':
-      return 'Reset session';
+    case 'resetSandbox':
+      return 'Reset sandbox';
     case 'setProgramVersion':
       return 'Set program version';
+  }
+};
+
+/**
+ * Compute a human one-liner from the step's filled fields. Used in the
+ * collapsed card header so users can scan a long workflow at a glance.
+ */
+const stepSummary = (step: Step): string => {
+  const short = (s: string): string =>
+    s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
+  switch (step.kind) {
+    case 'tx': {
+      if (!step.ixs.length) return '(no ixs — pick a template)';
+      const first = step.ixs[0];
+      const rest = step.ixs.length > 1 ? ` +${step.ixs.length - 1}` : '';
+      return `${first?.instructionName ?? '?'} @ ${first?.programLabel ?? '?'}${rest}`;
+    }
+    case 'airdrop': {
+      const sol = Number(step.lamports) / 1e9;
+      return `${sol} SOL → ${short(step.pubkey || '?')}`;
+    }
+    case 'warpTime':
+      return `+${step.seconds}s`;
+    case 'warpSlot':
+      return `slot → ${step.slot}`;
+    case 'expireBlockhash':
+      return 'force new blockhash';
+    case 'resetSession':
+    case 'resetSandbox':
+      return 'wipe sandbox to baseline';
+    case 'setProgramVersion':
+      return step.versionId ? `pin ${short(step.programId)} → version` : 'unpin';
   }
 };
 
@@ -181,6 +226,7 @@ const stepIcon = (k: StepKind, size = 13): ReactNode => {
     case 'expireBlockhash':
       return <RefreshCcw size={size} aria-hidden />;
     case 'resetSession':
+    case 'resetSandbox':
       return <RotateCcw size={size} aria-hidden />;
     case 'setProgramVersion':
       return <GitBranch size={size} aria-hidden />;
@@ -193,21 +239,55 @@ const STEP_KINDS: StepKind[] = [
   'warpTime',
   'warpSlot',
   'expireBlockhash',
-  'resetSession',
+  // 'resetSandbox' is the canonical new kind; 'resetSession' still parses
+  // for old workflow JSON.
+  'resetSandbox',
   'setProgramVersion',
+];
+
+/** Step kinds grouped by intent. Used by the "+ Add step" menu so newbies
+ *  can scan by category instead of staring at a flat row of 7 buttons. */
+const STEP_GROUPS: Array<{ label: string; kinds: StepKind[] }> = [
+  { label: 'Tx ops', kinds: ['tx', 'airdrop'] },
+  { label: 'Time ops', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
+  { label: 'Reset ops', kinds: ['resetSandbox'] },
+  { label: 'Version ops', kinds: ['setProgramVersion'] },
 ];
 
 export function WorkflowsPanel({
   project,
   activeSessionId,
   onSelectSession,
+  onOpenHelp,
+  pendingOpenId,
+  onConsumePending,
+  onBackToHome,
+  onPushRunRecord,
 }: {
   project: Project;
   activeSessionId: string | null;
   onSelectSession?: (id: string) => void;
+  onOpenHelp?: (skillId: string) => void;
+  /** When set, auto-open the matching workflow in the editor view. Null = blank new. */
+  pendingOpenId?: string | null | undefined;
+  onConsumePending?: () => void;
+  /** Back from detail/editor → Automations home. */
+  onBackToHome?: () => void;
+  /** Push a run result up to App so it surfaces in the bottom console dock. */
+  onPushRunRecord?: (rec: {
+    kind: 'workflow';
+    name: string;
+    pass: boolean;
+    body: JSX.Element;
+    subtitle: string;
+  }) => void;
 }): JSX.Element {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [editing, setEditing] = useState<Workflow | null>(null);
+  // Sidebar click opens a read-only detail view first. User must explicitly
+  // click Edit to enter the full editor — avoids implicit "started editing"
+  // state that's easy to dirty by accident.
+  const [viewing, setViewing] = useState<Workflow | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -223,6 +303,62 @@ export function WorkflowsPanel({
   useEffect(() => {
     reload();
   }, [project.id]);
+
+  // Sidebar click → pendingOpenId. Wait until workflows have loaded, then
+  // open the detail/view pane (NOT the editor). User clicks Edit to enter
+  // editor mode explicitly.
+  useEffect(() => {
+    if (pendingOpenId === undefined) return;
+    if (pendingOpenId === null) {
+      // Blank new — open prompt flow + jump straight to editor since there's
+      // nothing to view yet.
+      void newWorkflow();
+      onConsumePending?.();
+      return;
+    }
+    const wf = workflows.find((w) => w.id === pendingOpenId);
+    if (wf) {
+      setViewing(wf);
+      setEditing(null);
+      onConsumePending?.();
+    }
+    // Otherwise re-fires when workflows updates.
+  }, [pendingOpenId, workflows]);
+
+  // Keep viewing pane in sync with sidebar renames + step count updates.
+  // Returns the same reference when nothing meaningful changed so React
+  // skips the re-render — avoids cascading updates on every workflows refetch.
+  useEffect(() => {
+    setViewing((prev) => {
+      if (!prev) return prev;
+      const live = workflows.find((w) => w.id === prev.id);
+      if (!live) return null;
+      if (live === prev) return prev;
+      // Shallow-stable check on the fields the detail view actually renders.
+      if (
+        live.name === prev.name &&
+        live.description === prev.description &&
+        live.updatedAt === prev.updatedAt &&
+        live.steps.length === prev.steps.length
+      ) {
+        return prev;
+      }
+      return live;
+    });
+  }, [workflows]);
+
+  // External update sync — when the open workflow's name (or other meta)
+  // changes via sidebar inline rename, refresh the name field in the editor
+  // without clobbering in-progress step edits.
+  useEffect(() => {
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const live = workflows.find((w) => w.id === prev.id);
+      if (!live) return prev;
+      if (live.name === prev.name && live.description === prev.description) return prev;
+      return { ...prev, name: live.name, description: live.description };
+    });
+  }, [workflows]);
 
   const newWorkflow = async (): Promise<void> => {
     const name = await dialogs.prompt({
@@ -285,14 +421,14 @@ export function WorkflowsPanel({
       return null;
     }
     const id = await dialogs.pickFromList({
-      title: 'Select session',
-      message: 'Pick which session to run against.',
+      title: 'Select sandbox',
+      message: 'Pick which sandbox to run against.',
       items: sessions.map((s) => ({
         id: s.id,
         label: s.name + (s.isDefault ? ' (default)' : ''),
         hint: `${s.accountCount} accounts`,
       })),
-      emptyMessage: 'No sessions in this project. Create one from the sidebar.',
+      emptyMessage: 'No sandboxes in this project. Create one from the sidebar.',
       confirmText: 'Run',
     });
     if (id) onSelectSession?.(id);
@@ -320,8 +456,19 @@ export function WorkflowsPanel({
         ...(!target.id && { steps: target.steps }),
       });
       setResult(r);
-      if (r.success) toast.success(`workflow done · ${r.steps.length} steps`);
-      else toast.error('workflow halted (see results below)');
+      if (target.id) recordRun('workflow', target.id);
+      onPushRunRecord?.({
+        kind: 'workflow',
+        name: target.name || '(unnamed)',
+        pass: r.success,
+        subtitle: `${r.steps.filter((s) => s.success).length}/${r.steps.length} steps · ${r.completedAt - r.startedAt} ms`,
+        body: <RunResultView result={r} />,
+      });
+      if (r.success) {
+        toast.success(`workflow done · ${r.steps.length} steps`);
+        // Newbie cue: workflows + expectations = test suite. Hint at next step.
+        toast.info('Tip: turn this into a Test Suite to assert outcomes & state');
+      } else toast.error('workflow halted (see results below)');
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -337,7 +484,10 @@ export function WorkflowsPanel({
         busy={busy}
         onChange={setEditing}
         onSave={save}
-        onCancel={() => setEditing(null)}
+        onCancel={() => {
+          setEditing(null);
+          onBackToHome?.();
+        }}
         onRun={() => void run()}
         result={result}
         suggestions={suggestions}
@@ -345,71 +495,277 @@ export function WorkflowsPanel({
     );
   }
 
+  if (viewing) {
+    return (
+      <WorkflowDetail
+        workflow={viewing}
+        busy={busy}
+        onEdit={() => {
+          setEditing(viewing);
+          setViewing(null);
+        }}
+        onRun={() => void run(viewing)}
+        onDuplicate={async () => {
+          const clone: Workflow = {
+            ...viewing,
+            id: '',
+            name: `${viewing.name} (copy)`,
+            steps: viewing.steps.map((s) => ({ ...s, id: crypto.randomUUID() })),
+            updatedAt: Date.now(),
+          };
+          setEditing(clone);
+          setViewing(null);
+        }}
+        onDelete={async () => {
+          const ok = await dialogs.confirm({
+            title: `Delete "${viewing.name}"?`,
+            message: 'Permanent. The workflow JSON is removed from disk.',
+            danger: true,
+            confirmText: 'Delete',
+          });
+          if (!ok) return;
+          await remove(viewing.id);
+          setViewing(null);
+        }}
+        onBack={() => {
+          setViewing(null);
+          onBackToHome?.();
+        }}
+        result={result}
+      />
+    );
+  }
+
+  // No specific workflow open + no editor — bounce back to home so user sees
+  // recent runs / CTAs rather than a redundant table. App.tsx routes mount
+  // to this panel only on automationsMode='workflow', so this is rare.
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="m-0">Workflows</h2>
-          <span className="text-2xs text-text-subtle">{workflows.length} saved</span>
+    <div className="entity-detail">
+      <Empty
+        size="sm"
+        title="Pick a workflow"
+        description="Choose one from the sidebar, or go back to recent runs."
+        action={
+          <Button variant="primary" size="sm" onClick={() => onBackToHome?.()}>
+            Back to Automations
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Institution-level read-only detail view for a workflow. Shows hero header,
+ * KPI tiles, last-run summary banner, and a vertical step timeline. Edits
+ * gated behind explicit "Edit" — sidebar click never dirties state.
+ */
+function WorkflowDetail({
+  workflow,
+  busy,
+  onEdit,
+  onRun,
+  onDuplicate,
+  onDelete,
+  onBack,
+  result,
+}: {
+  workflow: Workflow;
+  busy: boolean;
+  onEdit: () => void;
+  onRun: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onBack: () => void;
+  result: RunResult | null;
+}): JSX.Element {
+  const totalCu = result
+    ? result.steps.reduce((n, s) => n + Number(s.tx?.cuConsumed ?? 0), 0)
+    : 0;
+  const successCount = result ? result.steps.filter((s) => s.success).length : 0;
+  const totalDuration = result
+    ? result.steps.reduce((n, s) => n + s.durationMs, 0)
+    : 0;
+
+  return (
+    <div className="entity-detail">
+      {/* ── Breadcrumb + back ────────────────────────────────────────── */}
+      <div className="entity-detail-breadcrumb">
+        <IconButton
+          icon={<ArrowLeft size={13} />}
+          label="Back"
+          size="sm"
+          variant="ghost"
+          onClick={onBack}
+        />
+        <span className="entity-detail-crumb">Automations</span>
+        <ChevronRight size={11} aria-hidden className="entity-detail-crumb-sep" />
+        <span className="entity-detail-crumb">Workflows</span>
+        <ChevronRight size={11} aria-hidden className="entity-detail-crumb-sep" />
+        <span className="entity-detail-crumb entity-detail-crumb-active">
+          {workflow.name || '(unnamed)'}
+        </span>
+      </div>
+
+      {/* ── Hero header ──────────────────────────────────────────────── */}
+      <div className="entity-detail-hero">
+        <div className="entity-detail-hero-main">
+          <span className="entity-detail-hero-icon" aria-hidden>
+            <Activity size={22} />
+          </span>
+          <div className="entity-detail-hero-text">
+            <div className="entity-detail-hero-title-row">
+              <h1 className="entity-detail-hero-title">{workflow.name || '(unnamed)'}</h1>
+              <span className="entity-pill entity-pill-workflow">Workflow</span>
+            </div>
+            {workflow.description ? (
+              <p className="entity-detail-hero-desc">{workflow.description}</p>
+            ) : (
+              <p className="entity-detail-hero-desc entity-detail-hero-desc-muted">
+                No description.
+              </p>
+            )}
+          </div>
         </div>
-        <div className="text-xs text-text-muted mb-3">
-          A named sequence of steps run against a session — tx submits, airdrops, time warps,
-          blockhash expiry, session reset.
-        </div>
-        <div>
-          <Button variant="primary" size="sm" onClick={() => void newWorkflow()}>
-            <Plus size={12} aria-hidden /> New workflow
+
+        <div className="entity-detail-hero-actions">
+          <Button variant="primary" size="md" onClick={onRun} disabled={busy}>
+            <Play size={13} aria-hidden /> Run
+          </Button>
+          <Button variant="outline" size="md" onClick={onEdit} disabled={busy}>
+            <Pencil size={13} aria-hidden /> Edit
+          </Button>
+          <Button variant="ghost" size="md" onClick={onDuplicate} disabled={busy}>
+            <Copy size={13} aria-hidden /> Duplicate
+          </Button>
+          <Button variant="ghost" size="md" onClick={onDelete} disabled={busy}>
+            <Trash2 size={13} aria-hidden />
           </Button>
         </div>
-        {workflows.length === 0 ? (
-          <div className="mt-3">
-            <Empty
-              size="sm"
-              title="No workflows yet"
-              description="Create one to chain tx submits, airdrops, warps, and session resets."
-            />
+      </div>
+
+      {/* ── KPI tiles ────────────────────────────────────────────────── */}
+      <div className="entity-detail-kpis">
+        <KpiTile
+          icon={<Layers size={14} />}
+          label="Steps"
+          value={String(workflow.steps.length)}
+        />
+        <KpiTile
+          icon={<CheckCircle2 size={14} />}
+          label="Last run"
+          value={result ? (result.success ? 'Passed' : 'Halted') : '—'}
+          tone={result ? (result.success ? 'good' : 'bad') : 'neutral'}
+        />
+        <KpiTile
+          icon={<Timer size={14} />}
+          label="Duration"
+          value={result ? `${totalDuration} ms` : '—'}
+        />
+        <KpiTile
+          icon={<Activity size={14} />}
+          label="Total CU"
+          value={result ? totalCu.toLocaleString() : '—'}
+        />
+      </div>
+
+      {/* ── Last-run banner ──────────────────────────────────────────── */}
+      {result && (
+        <div className={`entity-runbanner ${result.success ? 'ok' : 'fail'}`}>
+          <span className="entity-runbanner-icon" aria-hidden>
+            {result.success ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+          </span>
+          <div className="entity-runbanner-body">
+            <div className="entity-runbanner-title">
+              {result.success
+                ? 'Last run succeeded'
+                : 'Last run halted on a failed step'}
+            </div>
+            <div className="entity-runbanner-sub">
+              {successCount}/{result.steps.length} steps passed · {totalDuration} ms
+              · {totalCu.toLocaleString()} CU
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Step timeline ────────────────────────────────────────────── */}
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Steps</h3>
+          <span className="entity-detail-section-meta">
+            {workflow.steps.length} step{workflow.steps.length === 1 ? '' : 's'} · run in order
+          </span>
+        </div>
+        {workflow.steps.length === 0 ? (
+          <Empty
+            size="sm"
+            title="No steps yet"
+            description="Open the editor to add steps."
+            action={
+              <Button variant="primary" size="sm" onClick={onEdit} disabled={busy}>
+                <Pencil size={11} aria-hidden /> Edit
+              </Button>
+            }
+          />
         ) : (
-          <div className="mt-3 rounded-md border border-border overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
-                <tr>
-                  <th className="text-left font-medium px-3 py-1.5">Name</th>
-                  <th className="text-left font-medium px-3 py-1.5 w-16">Steps</th>
-                  <th className="text-left font-medium px-3 py-1.5">Updated</th>
-                  <th className="px-3 py-1.5 w-40" />
-                </tr>
-              </thead>
-              <tbody>
-                {workflows.map((w) => (
-                  <tr key={w.id} className="border-t border-border hover:bg-surface-1/50">
-                    <td className="px-3 py-1.5 text-text">{w.name}</td>
-                    <td className="px-3 py-1.5 text-text-muted">{w.steps.length}</td>
-                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                      {new Date(w.updatedAt).toISOString().slice(0, 19)}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="outline" size="xs" onClick={() => void run(w)}>
-                          <Play size={11} aria-hidden /> Run
-                        </Button>
-                        <Button variant="ghost" size="xs" onClick={() => setEditing(w)}>
-                          Edit
-                        </Button>
-                        <Button variant="danger" size="xs" onClick={() => void remove(w.id)}>
-                          <Trash2 size={11} aria-hidden />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className="entity-timeline">
+            {workflow.steps.map((step, idx) => (
+              <li key={step.id} className="entity-timeline-row">
+                <span className="entity-timeline-rail" aria-hidden>
+                  <span className="entity-timeline-dot">{stepIcon(step.kind, 12)}</span>
+                </span>
+                <div className="entity-timeline-card">
+                  <div className="entity-timeline-card-head">
+                    <span className="entity-timeline-idx">#{idx + 1}</span>
+                    <span className="entity-timeline-kind">{prettyKind(step.kind)}</span>
+                    <span className="entity-timeline-name">{step.name}</span>
+                  </div>
+                  <div className="entity-timeline-card-body">{stepSummary(step)}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
         )}
       </div>
 
-      {result && <RunResultView result={result} />}
+      {/* ── Footer chips: timestamps ─────────────────────────────────── */}
+      <div className="entity-detail-footchips">
+        <span className="entity-footchip">
+          <Calendar size={11} aria-hidden /> Created{' '}
+          {new Date(workflow.createdAt).toISOString().slice(0, 19).replace('T', ' ')}
+        </span>
+        <span className="entity-footchip">
+          <Clock size={11} aria-hidden /> Updated{' '}
+          {new Date(workflow.updatedAt).toISOString().slice(0, 19).replace('T', ' ')}
+        </span>
+      </div>
+
+    </div>
+  );
+}
+
+/** Single KPI metric tile. Used by both Workflow + Suite detail views. */
+function KpiTile({
+  icon,
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'good' | 'bad';
+}): JSX.Element {
+  return (
+    <div className={`entity-kpi tone-${tone}`}>
+      <div className="entity-kpi-head">
+        <span className="entity-kpi-icon" aria-hidden>
+          {icon}
+        </span>
+        <span className="entity-kpi-label">{label}</span>
+      </div>
+      <div className="entity-kpi-value">{value}</div>
     </div>
   );
 }
@@ -422,7 +778,6 @@ function WorkflowEditor({
   onSave,
   onCancel,
   onRun,
-  result,
   suggestions,
 }: {
   workflow: Workflow;
@@ -432,14 +787,45 @@ function WorkflowEditor({
   onSave: () => Promise<void>;
   onCancel: () => void;
   onRun: () => void;
-  result: RunResult | null;
   suggestions: import('../components/useAddressSuggestions').AddressSuggestion[];
 }): JSX.Element {
   const update = (patch: Partial<Workflow>): void => onChange({ ...workflow, ...patch });
+
+  // Per-step collapse state — by default the first step is expanded so the
+  // user lands in a working state, every subsequent step is collapsed so
+  // long workflows fit on screen.
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    if (workflow.steps[0]) s.add(workflow.steps[0].id);
+    return s;
+  });
+  const isExpanded = (id: string): boolean => expandedSteps.has(id);
+  const toggleExpanded = (id: string): void =>
+    setExpandedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const addStep = (kind: StepKind): void =>
     update({ steps: [...workflow.steps, defaultStep(kind)] });
   const removeStep = (id: string): void =>
     update({ steps: workflow.steps.filter((s) => s.id !== id) });
+  // Clone a step under the source step, generating a fresh id so it can be
+  // edited / reordered independently.
+  const duplicateStep = (id: string): void => {
+    const idx = workflow.steps.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    const src = workflow.steps[idx]!;
+    const clone = {
+      ...src,
+      id: crypto.randomUUID(),
+      name: `${src.name} (copy)`,
+    } as Step;
+    const next = workflow.steps.slice();
+    next.splice(idx + 1, 0, clone);
+    update({ steps: next });
+  };
   const moveStep = (id: string, dir: -1 | 1): void => {
     const idx = workflow.steps.findIndex((s) => s.id === id);
     if (idx < 0) return;
@@ -463,138 +849,188 @@ function WorkflowEditor({
     ixs: TxIxLite[];
   }>;
 
+  // First-time guide banner — visible inside the New workflow editor until
+  // the user dismisses it (persisted). Helps newbies understand the flow
+  // before staring at a blank form.
+  const isNew = !workflow.id;
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <IconButton
-              icon={<ArrowLeft size={14} />}
-              label="Back"
-              size="sm"
-              variant="ghost"
-              onClick={onCancel}
-            />
-            <h2 className="m-0">{workflow.id ? 'Edit workflow' : 'New workflow'}</h2>
-          </div>
-          <div className="flex gap-1.5">
-            <Button variant="outline" size="sm" onClick={onRun} disabled={busy}>
-              <Play size={12} aria-hidden /> Run
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => void onSave()} disabled={busy}>
-              {busy ? (
-                <>
-                  <Spinner size={12} /> Saving
-                </>
-              ) : (
-                <>
-                  <Save size={12} aria-hidden /> Save
-                </>
-              )}
-            </Button>
-          </div>
+    <div className="entity-detail entity-editor">
+      <div className="entity-editor-toolbar">
+        <div className="entity-editor-toolbar-left">
+          <IconButton
+            icon={<ArrowLeft size={13} />}
+            label="Back"
+            size="sm"
+            variant="ghost"
+            onClick={onCancel}
+          />
+          <span className="entity-detail-crumb">Workflows</span>
+          <ChevronRight size={11} className="entity-detail-crumb-sep" aria-hidden />
+          <span className="entity-detail-crumb entity-detail-crumb-active">
+            {workflow.id ? 'Edit' : 'New'}
+          </span>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-3">
-          <Field label="Name">
-            <Input value={workflow.name} onChange={(e) => update({ name: e.target.value })} />
-          </Field>
-          <Field label="Description">
-            <Input
-              value={workflow.description}
-              onChange={(e) => update({ description: e.target.value })}
-              placeholder="What does this workflow do?"
-            />
-          </Field>
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-border">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="m-0">
-              Steps <span className="text-text-muted">({workflow.steps.length})</span>
-            </h2>
-            <div className="flex flex-wrap gap-1">
-              {STEP_KINDS.map((k) => (
-                <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
-                  {stepIcon(k, 11)} {prettyKind(k)}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {workflow.steps.length === 0 ? (
-            <Empty
-              size="sm"
-              title="No steps yet"
-              description="Add a step above. Steps run top-to-bottom in the active session."
-            />
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {workflow.steps.map((step, idx) => (
-                <li
-                  key={step.id}
-                  className="rounded-md border border-border bg-surface-0 overflow-hidden"
-                >
-                  <div className="flex items-center gap-2 px-3 py-2 bg-surface-1/60 border-b border-border">
-                    <Badge size="sm" variant="default" className="font-mono">
-                      #{idx + 1}
-                    </Badge>
-                    <span
-                      className="inline-flex items-center justify-center w-6 h-6 rounded bg-surface-2 text-text-muted shrink-0"
-                      aria-hidden
-                    >
-                      {stepIcon(step.kind)}
-                    </span>
-                    <Badge size="sm" variant="accent">
-                      {prettyKind(step.kind)}
-                    </Badge>
-                    <Input
-                      value={step.name}
-                      onChange={(e) => updateStep(step.id, { name: e.target.value })}
-                      sizeVariant="sm"
-                      className="flex-1"
-                    />
-                    <IconButton
-                      icon={<ChevronUp size={12} />}
-                      label="Move up"
-                      size="sm"
-                      variant="ghost"
-                      disabled={idx === 0}
-                      onClick={() => moveStep(step.id, -1)}
-                    />
-                    <IconButton
-                      icon={<ChevronDown size={12} />}
-                      label="Move down"
-                      size="sm"
-                      variant="ghost"
-                      disabled={idx === workflow.steps.length - 1}
-                      onClick={() => moveStep(step.id, 1)}
-                    />
-                    <IconButton
-                      icon={<X size={12} />}
-                      label="Remove step"
-                      size="sm"
-                      variant="danger"
-                      onClick={() => removeStep(step.id)}
-                    />
-                  </div>
-                  <div className="px-3 py-3">
-                    <StepForm
-                      step={step}
-                      templates={allTemplates}
-                      onPatch={(patch) => updateStep(step.id, patch)}
-                      suggestions={suggestions}
-                      project={project}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="entity-editor-toolbar-right">
+          <Button variant="outline" size="sm" onClick={onRun} disabled={busy}>
+            <Play size={12} aria-hidden /> Run
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void onSave()} disabled={busy}>
+            {busy ? (
+              <>
+                <Spinner size={12} /> Saving
+              </>
+            ) : (
+              <>
+                <Save size={12} aria-hidden /> Save
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
-      {result && <RunResultView result={result} />}
+      {isNew && (
+        <div className="entity-detail-section">
+          <FirstRunGuide kind="workflow" />
+        </div>
+      )}
+
+      <div className="entity-detail-section">
+        <div className="entity-editor-name-row">
+          <input
+            type="text"
+            className="entity-editor-name-input"
+            value={workflow.name}
+            onChange={(e) => update({ name: e.target.value })}
+            placeholder="Untitled workflow"
+            autoFocus
+          />
+          <span className="entity-pill entity-pill-workflow">Workflow</span>
+        </div>
+        <input
+          type="text"
+          className="entity-editor-desc-input"
+          value={workflow.description}
+          onChange={(e) => update({ description: e.target.value })}
+          placeholder="What does this workflow do?"
+        />
+      </div>
+
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">
+            Steps{' '}
+            <span className="entity-editor-count">({workflow.steps.length})</span>
+          </h3>
+          <span className="entity-detail-section-meta">runs top-to-bottom, halts on fail</span>
+        </div>
+        <div className="step-add-bar">
+          {STEP_GROUPS.map((g) => (
+            <div key={g.label} className="step-add-group">
+              <div className="step-add-group-label">{g.label}</div>
+              <div className="step-add-group-buttons">
+                {g.kinds.map((k) => (
+                  <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
+                    {stepIcon(k, 11)} {prettyKind(k)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {workflow.steps.length === 0 ? (
+          <Empty
+            size="sm"
+            title="No steps yet"
+            description="Add a step above. Steps run top-to-bottom in the active sandbox."
+          />
+        ) : (
+          <ul className="step-list">
+            {workflow.steps.map((step, idx) => {
+              const open = isExpanded(step.id);
+              return (
+                <li key={step.id} className={`step-card${open ? ' open' : ''}`}>
+                  <div className="step-card-head">
+                    <IconButton
+                      icon={open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      label={open ? 'Collapse step' : 'Expand step'}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => toggleExpanded(step.id)}
+                    />
+                    <span className="step-card-idx">#{idx + 1}</span>
+                    <span className={`step-card-icon kind-${step.kind}`} aria-hidden>
+                      {stepIcon(step.kind, 12)}
+                    </span>
+                    <span className="step-card-kind">{prettyKind(step.kind)}</span>
+                    {open ? (
+                      <input
+                        type="text"
+                        className="step-card-name-input"
+                        value={step.name}
+                        onChange={(e) => updateStep(step.id, { name: e.target.value })}
+                        placeholder="Step name"
+                      />
+                    ) : (
+                      <div className="step-card-collapsed">
+                        <span className="step-card-name">{step.name}</span>
+                        <span className="step-card-summary font-mono">
+                          {stepSummary(step)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="step-card-actions">
+                      <IconButton
+                        icon={<ChevronUp size={12} />}
+                        label="Move up"
+                        size="sm"
+                        variant="ghost"
+                        disabled={idx === 0}
+                        onClick={() => moveStep(step.id, -1)}
+                      />
+                      <IconButton
+                        icon={<ChevronDown size={12} />}
+                        label="Move down"
+                        size="sm"
+                        variant="ghost"
+                        disabled={idx === workflow.steps.length - 1}
+                        onClick={() => moveStep(step.id, 1)}
+                      />
+                      <IconButton
+                        icon={<Copy size={12} />}
+                        label="Duplicate step"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => duplicateStep(step.id)}
+                      />
+                      <IconButton
+                        icon={<X size={12} />}
+                        label="Remove step"
+                        size="sm"
+                        variant="danger"
+                        onClick={() => removeStep(step.id)}
+                      />
+                    </div>
+                  </div>
+                  {open && (
+                    <div className="step-card-body">
+                      <StepForm
+                        step={step}
+                        templates={allTemplates}
+                        onPatch={(patch) => updateStep(step.id, patch)}
+                        suggestions={suggestions}
+                        project={project}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
     </div>
   );
 }
@@ -660,7 +1096,11 @@ function StepForm({
       </Field>
     );
   }
-  if (step.kind === 'expireBlockhash' || step.kind === 'resetSession') {
+  if (
+    step.kind === 'expireBlockhash' ||
+    step.kind === 'resetSession' ||
+    step.kind === 'resetSandbox'
+  ) {
     return <div className="text-2xs text-text-subtle italic">no parameters</div>;
   }
   if (step.kind === 'setProgramVersion') {
@@ -685,7 +1125,7 @@ function SetProgramVersionForm({
   return (
     <div className="flex flex-col gap-3">
       <div className="text-2xs text-text-muted">
-        Persistently switches the session-level version pin for one program.
+        Persistently switches the sandbox-level version pin for one program.
         All subsequent steps use the new version until another
         setProgramVersion step. Use V1→V2 then V2→V1 to flip-test upgrade and
         downgrade behavior in one run.
@@ -965,7 +1405,7 @@ function ProgramVersionOverridesEditor({
                   } as Partial<Step>);
                 }}
               >
-                <option value="">(follow session)</option>
+                <option value="">(follow sandbox)</option>
                 {prog.versions.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.label}
@@ -982,107 +1422,111 @@ function ProgramVersionOverridesEditor({
 
 function RunResultView({ result }: { result: RunResult }): JSX.Element {
   const succeeded = result.steps.filter((s) => s.success).length;
+  const failed = result.steps.length - succeeded;
+  const totalMs = result.completedAt - result.startedAt;
+  const totalCu = result.steps.reduce((n, s) => n + Number(s.tx?.cuConsumed ?? 0), 0);
+
   return (
-    <div className="panel">
-      <header className="flex items-start gap-3 mb-3 flex-wrap">
-        <span
-          className={[
-            'inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0',
-            result.success ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger',
-          ].join(' ')}
-          aria-hidden
-        >
+    <div className="run-result">
+      <div className={`run-result-banner ${result.success ? 'ok' : 'fail'}`}>
+        <span className="run-result-banner-icon" aria-hidden>
           {result.success ? (
-            <Check size={16} strokeWidth={2.5} />
+            <Check size={18} strokeWidth={2.5} />
           ) : (
-            <XCircle size={16} strokeWidth={2.5} />
+            <XCircle size={18} strokeWidth={2.5} />
           )}
         </span>
-        <div className="min-w-0">
-          <h2 className="m-0 text-md font-semibold">
-            Run result ·{' '}
-            <span className={result.success ? 'text-success' : 'text-danger'}>
-              {result.success ? 'SUCCESS' : 'FAILED'}
-            </span>
-          </h2>
-          <div className="text-xs text-text-muted mt-0.5">
-            {succeeded}/{result.steps.length} steps ok ·{' '}
-            <span className="font-mono">{result.completedAt - result.startedAt} ms</span> total
+        <div className="run-result-banner-body">
+          <div className="run-result-banner-title">
+            {result.success ? 'Workflow completed' : 'Workflow halted'}
+          </div>
+          <div className="run-result-banner-sub">
+            {result.success
+              ? `All ${result.steps.length} steps passed.`
+              : `Halted at step ${succeeded + 1} of ${result.steps.length}.`}
           </div>
         </div>
-      </header>
-      <ul className="rounded-md border border-border overflow-hidden">
+        <div className="run-result-banner-stats">
+          <RunStat label="Passed" value={String(succeeded)} tone="good" />
+          <RunStat label="Failed" value={String(failed)} tone={failed > 0 ? 'bad' : 'neutral'} />
+          <RunStat label="Duration" value={`${totalMs} ms`} />
+          <RunStat label="CU" value={totalCu.toLocaleString()} />
+        </div>
+      </div>
+
+      <ol className="run-result-steps">
         {result.steps.map((s, i) => (
           <StepResultRow key={s.stepId} index={i + 1} step={s} />
         ))}
-      </ul>
+      </ol>
+    </div>
+  );
+}
+
+function RunStat({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'good' | 'bad';
+}): JSX.Element {
+  return (
+    <div className={`run-stat tone-${tone}`}>
+      <span className="run-stat-label">{label}</span>
+      <span className="run-stat-value">{value}</span>
     </div>
   );
 }
 
 function StepResultRow({ index, step }: { index: number; step: StepResult }): JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!step.success); // auto-expand failures
   const hasLogs = !!(step.tx && step.tx.logs.length > 0);
   const expandable = hasLogs || !!step.errorMessage;
   return (
-    <li className="border-b border-border last:border-b-0">
+    <li className={`run-step${step.success ? '' : ' fail'}${open ? ' open' : ''}`}>
       <button
         type="button"
         disabled={!expandable}
         onClick={() => expandable && setOpen((v) => !v)}
-        className={[
-          'w-full flex items-center gap-2 px-3 py-2 text-left bg-transparent border-0',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
-          expandable ? 'cursor-pointer hover:bg-surface-1/40' : 'cursor-default',
-        ].join(' ')}
+        className="run-step-head"
       >
-        <span className="w-3.5 text-text-muted inline-flex justify-center">
+        <span className="run-step-chev">
           {expandable ? (
             open ? (
-              <ChevronDown size={12} />
+              <ChevronDown size={11} />
             ) : (
-              <ChevronRight size={12} />
+              <ChevronRight size={11} />
             )
           ) : (
-            <span className="w-1 h-1 rounded-full bg-text-subtle" />
+            <span className="run-step-dot" />
           )}
         </span>
-        <Badge size="sm" variant="default" className="font-mono">
-          #{index}
-        </Badge>
-        <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted shrink-0"
-          aria-hidden
-        >
+        <span className="run-step-idx">#{index}</span>
+        <span className={`run-step-icon kind-${step.kind}`} aria-hidden>
           {stepIcon(step.kind, 11)}
         </span>
-        <Badge size="sm" variant="accent">
-          {prettyKind(step.kind)}
-        </Badge>
-        <span className="flex-1 min-w-0 truncate text-xs text-text">{step.name}</span>
-        <span
-          className={['shrink-0', step.success ? 'text-success' : 'text-danger'].join(' ')}
-          aria-label={step.success ? 'success' : 'failure'}
-        >
-          {step.success ? <Check size={13} /> : <XCircle size={13} />}
+        <span className="run-step-kind">{prettyKind(step.kind)}</span>
+        <span className="run-step-name">{step.name}</span>
+        <span className="run-step-stats">
+          {step.tx && <span className="run-step-cu font-mono">cu {step.tx.cuConsumed}</span>}
+          <span className="run-step-dur font-mono">{step.durationMs.toFixed(1)} ms</span>
         </span>
-        <span className="font-mono text-2xs text-text-subtle min-w-[80px] text-right">
-          {step.tx ? `cu ${step.tx.cuConsumed} · ` : ''}
-          {step.durationMs.toFixed(1)}ms
+        <span className={`run-step-status ${step.success ? 'ok' : 'fail'}`}>
+          {step.success ? <Check size={12} /> : <XCircle size={12} />}
         </span>
       </button>
 
       {open && expandable && (
-        <div className="px-3 pb-3 pl-10">
+        <div className="run-step-body">
           {step.errorMessage && (
-            <div className="text-2xs text-danger break-words mb-2 font-mono">
-              error: {step.errorMessage}
+            <div className="run-step-error font-mono">
+              <XCircle size={11} aria-hidden /> {step.errorMessage}
             </div>
           )}
           {hasLogs && (
-            <pre className="font-mono text-2xs bg-bg border border-border rounded p-2 max-h-[320px] overflow-auto m-0 whitespace-pre-wrap">
-              {step.tx!.logs.join('\n')}
-            </pre>
+            <pre className="run-step-logs font-mono">{step.tx!.logs.join('\n')}</pre>
           )}
         </div>
       )}

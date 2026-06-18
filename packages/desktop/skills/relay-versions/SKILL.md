@@ -1,6 +1,6 @@
 ---
 name: relay-versions
-description: Multi-version program management in Relay — adding versions (clone / local .so / blob hash), switching project active, pinning per session, pinning per workflow step, comparing IDLs + tx behaviour across versions.
+description: Multi-version program management in Relay — adding versions (clone / local .so / blob hash), switching project active, pinning per sandbox, pinning per workflow step, comparing IDLs + tx behaviour across versions.
 ---
 
 # Program versions
@@ -49,25 +49,25 @@ programVersion.setLabel({ projectId, programId, versionId, label })
 programVersion.pinForSession({ projectId, sessionId, programId, versionId | null })
 ```
 
-`setActive` invalidates every session in the project. `pinForSession`
-invalidates only that one session.
+`setActive` invalidates every sandbox in the project. `pinForSession`
+invalidates only that one sandbox.
 
 ## Resolution order at run time
 
-When a session loads a program's ELF, or when an ix decoder picks an IDL:
+When a sandbox loads a program's ELF, or when an ix decoder picks an IDL:
 
 1. Explicit run-time override (`programVersionOverrides` on `tx.simulate` /
    `tx.send` / `tx.compareVersions`, or on a workflow tx step).
-2. Session pin (`session.programVersionOverrides[programId]`).
+2. Sandbox pin (`session.programVersionOverrides[programId]`).
 3. Project active (`program.activeVersionId`).
 
-Session-level pin is sticky across runs until you clear it. Workflow-step
+Sandbox-level pin is sticky across runs until you clear it. Workflow-step
 pin is applied around that one step only — restored in `finally` after.
 
-## Pinning a session
+## Pinning a sandbox
 
 UI: sidebar row of the program → click the version badge → pick a version.
-A pin badge appears next to the program label whenever the session
+A pin badge appears next to the program label whenever the sandbox
 overrides project active.
 
 IPC:
@@ -100,12 +100,12 @@ In a workflow tx step JSON:
 }
 ```
 
-Step pin wraps in try/finally — previous session pin is restored after the
+Step pin wraps in try/finally — previous sandbox pin is restored after the
 step, even on throw. See `relay-workflow`.
 
 ## Persistent flip mid-run (`setProgramVersion` step)
 
-For comparative scenarios that need to run **the same** session across
+For comparative scenarios that need to run **the same** sandbox across
 multiple versions (upgrade, then exercise V2, then downgrade), use the
 `setProgramVersion` step kind in workflows / test suites:
 
@@ -114,7 +114,7 @@ multiple versions (upgrade, then exercise V2, then downgrade), use the
 ```
 
 Unlike a tx step's `programVersionOverrides` (restored after one step),
-`setProgramVersion` is **persistent** — flips the session-level pin and
+`setProgramVersion` is **persistent** — flips the sandbox-level pin and
 re-hydrates the SVM so every subsequent step uses the new ELF + IDL until
 another `setProgramVersion` step (or end of run). `versionId: null` clears
 the pin. See `relay-tests` for full upgrade/downgrade testcase shape.
@@ -126,7 +126,7 @@ Two purpose-built panels:
 - **Run-compare panel**: pick program + left/right versions + a tx template,
   Relay pins left, runs, pins right, runs, returns side-by-side
   `TxResultView`. IPC: `tx.compareVersions({ ...build, leftVersionId,
-  rightVersionId })`. Session pin restored after.
+  rightVersionId })`. Sandbox pin restored after.
 - **IDL diff panel**: pick two IDLs (program-default vs versioned, or
   any two), render structural diff per section (instructions / accounts /
   types / events / errors). IPC: `idl.diff(left, right)` / `idl.diffPrograms(...)`.

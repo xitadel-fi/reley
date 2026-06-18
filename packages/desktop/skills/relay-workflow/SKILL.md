@@ -5,8 +5,8 @@ description: How to author Relay workflow JSON files at .relay/workflows/<id>.js
 
 # Workflows
 
-A workflow is a named sequence of steps run against a session. Steps include
-tx submits, airdrops, time warps, blockhash expiry, and session reset. They
+A workflow is a named sequence of steps run against a sandbox. Steps include
+tx submits, airdrops, time warps, blockhash expiry, and sandbox reset. They
 let you reproduce a deterministic chain of operations.
 
 ## File location
@@ -69,12 +69,12 @@ let you reproduce a deterministic chain of operations.
 | `kind`            | Meaning |
 |-------------------|---------|
 | `tx`                  | Send a transaction; mirrors a tx-template's `ixs[]` |
-| `airdrop`             | Fund a pubkey with lamports inside the session |
+| `airdrop`             | Fund a pubkey with lamports inside the sandbox |
 | `warpTime`            | Advance LiteSVM clock by `seconds` (slot + unix_timestamp) |
 | `warpSlot`            | Jump to absolute `slot` (unix_timestamp scaled by 0.4s/slot) |
 | `expireBlockhash`     | Force any pre-signed tx to need a new blockhash |
 | `resetSession`        | Wipe sandbox state to project's initial clone |
-| `setProgramVersion`   | Flip session-level version pin for one program (persistent) |
+| `setProgramVersion`   | Flip sandbox-level version pin for one program (persistent) |
 
 ## `setProgramVersion` step fields
 
@@ -103,7 +103,7 @@ to exercise upgrade/downgrade paths back-to-back.
 | `airdropPayerLamports` | Pre-fund the payer before sending |
 | `payerKeypairId` | Dev keypair that pays the fee (= first signer). `null` → ephemeral keypair generated, must be funded via `airdropPayerLamports` |
 | `additionalSignerKeypairIds` | Dev keypairs whose pubkeys match non-payer `isSigner: true` accounts. Backend dedupes payer from this list. Required for multi-sig ixs. |
-| `programVersionOverrides` | Per-step `{ programId: versionId }` pin. Applied before the tx runs, restored in `finally` after (so a failed step still cleans up). Workflow-step pin beats session pin beats project active. |
+| `programVersionOverrides` | Per-step `{ programId: versionId }` pin. Applied before the tx runs, restored in `finally` after (so a failed step still cleans up). Workflow-step pin beats sandbox pin beats project active. |
 
 ## Tx step → template link
 
@@ -118,7 +118,7 @@ To rebuild a workflow tx step's ixs from its template:
 
 ## Execution semantics
 
-- Steps run top-to-bottom in the active session.
+- Steps run top-to-bottom in the active sandbox.
 - **Halt-on-fail**: if a step throws or a tx step's send fails, no subsequent
   step runs. Results array returned so far. For assertion-driven runs that
   must not halt on failed tx, use `relay-tests` instead.
@@ -127,10 +127,42 @@ To rebuild a workflow tx step's ixs from its template:
 - The run result captures success/failure, duration, and (for `tx` steps)
   cu consumed + logs.
 
+## UI workflow (current desktop build)
+
+1. **Land on Automations Home** — `Workspace → Automations` tab. When no
+   workflows exist yet, two big CTAs (`New workflow` / `New test suite`)
+   fill the middle pane. Otherwise: recent-runs grid sorted by last run
+   timestamp.
+2. **Create / open** — sidebar `Automations → Workflows → +`, or click an
+   existing workflow row. Clicking opens a **read-only Detail view** first
+   (hero header, KPI tiles, last-run banner, step timeline). State is never
+   dirtied by sidebar clicks.
+3. **Edit** — explicit `Edit` button on the detail toolbar opens the
+   editor. Sticky toolbar at top: Back / Save / Run. Headline name input +
+   description input. Steps section with grouped `+ Add step` bar (Tx ops /
+   Time ops / Reset ops / Version ops).
+4. **Per-step controls** — color-coded kind icon, idx pill, name input,
+   Move up/down, Duplicate (Copy icon), Remove. First step auto-expanded.
+5. **Run** — `Run` button (toolbar or detail view). Results push to the
+   **bottom console dock**, `Results` tab. Tab badge flips to `PASS`
+   (green) or `FAIL` (red). Auto-opens dock + auto-switches tab on every
+   run. Dock is resizable via top-edge drag handle.
+
+## First-run guide
+
+When the editor opens with a blank workflow (`id === ''`), a dismissable
+banner appears above the form listing the 3-step flow:
+1. Name your workflow.
+2. Add steps below.
+3. Save and run.
+
+Persisted via `relay:guide-workflow-done` in localStorage — never replays.
+
 ## Cross-references
 
 - `relay-tx-template` — instruction format.
 - `relay-tests` — assertion-driven multi-case sibling; no halt on tx fail.
 - `relay-versions` — manage program versions before pinning.
 - `relay-keypair` — add signer keypairs.
+- `relay-sandbox` — what sandbox the workflow runs against.
 - `relay-troubleshooting` — debugging failed steps.

@@ -43,7 +43,7 @@ Verdict: plain base58 on disk. Do not use these for mainnet.
 - **Import** (UI → Import): paste a base58 secret OR Solana-CLI JSON
   (`[1,2,3,…,64]`).
 - **Airdrop** (UI table → Airdrop): inject lamports into the active
-  session for this pubkey.
+  sandbox for this pubkey.
 - **Copy secret**: clipboard, base58.
 - **Copy JSON**: clipboard, Solana-CLI format.
 - **Delete**: removes from the file. Irreversible.

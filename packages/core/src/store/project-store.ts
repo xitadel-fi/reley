@@ -286,6 +286,9 @@ export class ProjectStore {
       if (!Array.isArray((p as { testSuites?: unknown }).testSuites)) {
         (p as { testSuites: unknown[] }).testSuites = [];
       }
+      if (!Array.isArray((p as { folders?: unknown }).folders)) {
+        (p as { folders: unknown[] }).folders = [];
+      }
       // Synthesize multi-version layout for legacy single-version programs
       // that bypassed the per-entity sink upgrade (e.g. project created via
       // direct ProjectStore.addProgram before the multi-version shipped).

@@ -1,4 +1,4 @@
-import { Check, History, Search, Trash2, XCircle } from 'lucide-react';
+import { Check, Columns, History, Save, Search, Trash2, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
@@ -30,6 +30,7 @@ interface TxRecord {
   cuConsumed: bigint | string | number;
   trace: TraceNode;
   touchedAccounts: string[];
+  rawTxBase64?: string;
 }
 
 type StatusFilter = 'all' | 'ok' | 'err';
@@ -54,8 +55,24 @@ export function TxHistoryPanel({
   const [status, setStatus] = useState<StatusFilter>('all');
   const [timeWindow, setTimeWindow] = useState<TimeFilter>('all');
   const [programFilter, setProgramFilter] = useState<string>('');
+  const [compareMode, setCompareMode] = useState<boolean>(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareOpen, setCompareOpen] = useState<boolean>(false);
   const toast = useToast();
   const dialogs = useDialogs();
+
+  const toggleCompareId = (id: string): void => {
+    setCompareIds((cur) => {
+      if (cur.includes(id)) return cur.filter((x) => x !== id);
+      // Cap at 2 — pushing a third drops the oldest.
+      if (cur.length >= 2) return [cur[1]!, id];
+      return [...cur, id];
+    });
+  };
+  const exitCompareMode = (): void => {
+    setCompareMode(false);
+    setCompareIds([]);
+  };
 
   const reload = (): void => {
     setErr(null);
@@ -106,11 +123,32 @@ export function TxHistoryPanel({
       .reverse();
   }, [items, query, status, timeWindow, programFilter]);
 
+  const saveAsTemplate = async (tx: TxRecord): Promise<void> => {
+    if (!activeSessionId || !tx.rawTxBase64) return;
+    const name = await dialogs.prompt({
+      title: 'Save as template',
+      label: 'Template name',
+      placeholder: 'e.g. transfer-100-USDC',
+      confirmText: 'Save',
+    });
+    if (!name?.trim()) return;
+    try {
+      await api.call('tx.historyToTemplate', {
+        sessionId: activeSessionId,
+        recordId: tx.id,
+        name: name.trim(),
+      });
+      toast.success(`template saved: ${name.trim()}`);
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
   const clearAll = async (): Promise<void> => {
     if (!activeSessionId) return;
     const ok = await dialogs.confirm({
       title: 'Clear transaction history',
-      message: `Drop all ${items.length} tx records for this session? State stays intact, only the log is wiped.`,
+      message: `Drop all ${items.length} tx records for this sandbox? State stays intact, only the log is wiped.`,
       danger: true,
       confirmText: 'Clear',
     });
@@ -129,8 +167,8 @@ export function TxHistoryPanel({
     return (
       <Empty
         icon={<History size={20} aria-hidden />}
-        title="No session selected"
-        description="Pick a session in the sidebar to view its transaction history."
+        title="No sandbox selected"
+        description="Pick a sandbox in the sidebar to view its transaction history."
       />
     );
   }
@@ -157,6 +195,16 @@ export function TxHistoryPanel({
                 {errCount} err
               </Badge>
             )}
+            {items.length >= 2 && (
+              <Button
+                variant={compareMode ? 'accent' : 'ghost'}
+                size="sm"
+                onClick={() => (compareMode ? exitCompareMode() : setCompareMode(true))}
+                title="Pick 2 rows to compare side-by-side"
+              >
+                <Columns size={12} aria-hidden /> Compare
+              </Button>
+            )}
             {items.length > 0 && (
               <Button variant="danger" size="sm" onClick={() => void clearAll()}>
                 <Trash2 size={12} aria-hidden /> Clear all
@@ -164,6 +212,36 @@ export function TxHistoryPanel({
             )}
           </div>
         </div>
+
+        {compareMode && (
+          <div className="rounded border border-accent/40 bg-accent/5 px-3 py-2 mb-3 flex items-center gap-3 text-xs">
+            <Columns size={12} className="text-accent shrink-0" aria-hidden />
+            <span className="flex-1 text-text">
+              Compare mode — pick {2 - compareIds.length} more row{compareIds.length === 1 ? '' : 's'}.
+              <span className="text-text-subtle">
+                {' '}
+                ({compareIds.length}/2 selected)
+              </span>
+            </span>
+            <Button
+              variant="primary"
+              size="xs"
+              disabled={compareIds.length !== 2}
+              onClick={() => setCompareOpen(true)}
+            >
+              Compare ▸
+            </Button>
+            <button
+              type="button"
+              onClick={exitCompareMode}
+              className="inline-flex w-5 h-5 items-center justify-center text-text-muted hover:text-text"
+              title="Exit compare mode"
+              aria-label="Exit compare mode"
+            >
+              <X size={12} aria-hidden />
+            </button>
+          </div>
+        )}
 
         {err && <ErrorState title="Failed to load history" message={err} />}
 
@@ -248,6 +326,10 @@ export function TxHistoryPanel({
                     tx={tx}
                     selected={selected?.id === tx.id}
                     onSelect={() => setSelected(tx)}
+                    onSaveAsTemplate={() => void saveAsTemplate(tx)}
+                    compareMode={compareMode}
+                    compareChecked={compareIds.includes(tx.id)}
+                    onToggleCompare={() => toggleCompareId(tx.id)}
                   />
                 )}
               />
@@ -259,6 +341,10 @@ export function TxHistoryPanel({
                     tx={tx}
                     selected={selected?.id === tx.id}
                     onSelect={() => setSelected(tx)}
+                    onSaveAsTemplate={() => void saveAsTemplate(tx)}
+                    compareMode={compareMode}
+                    compareChecked={compareIds.includes(tx.id)}
+                    onToggleCompare={() => toggleCompareId(tx.id)}
                   />
                 ))}
               </div>
@@ -267,7 +353,7 @@ export function TxHistoryPanel({
         )}
       </div>
 
-      {selected && (
+      {selected && !compareMode && (
         <TxResultView
           result={{
             success: selected.success,
@@ -280,6 +366,93 @@ export function TxHistoryPanel({
           }}
         />
       )}
+
+      {compareOpen && compareIds.length === 2 && (
+        <CompareDiff
+          left={items.find((i) => i.id === compareIds[0])!}
+          right={items.find((i) => i.id === compareIds[1])!}
+          onClose={() => setCompareOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CompareDiff({
+  left,
+  right,
+  onClose,
+}: {
+  left: TxRecord;
+  right: TxRecord;
+  onClose: () => void;
+}): JSX.Element {
+  const fmtCu = (v: bigint | string | number): string => String(v);
+  const cuLeft = Number(left.cuConsumed);
+  const cuRight = Number(right.cuConsumed);
+  const cuDelta = cuRight - cuLeft;
+  const cuPct = cuLeft > 0 ? ((cuDelta / cuLeft) * 100).toFixed(1) : '∞';
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-6 overflow-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg border border-border rounded-lg shadow-elev-3 w-full max-w-6xl mt-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center gap-3 px-4 py-3 border-b border-border">
+          <Columns size={14} className="text-accent" aria-hidden />
+          <h3 className="m-0 text-md font-semibold">Compare 2 txs</h3>
+          <div className="ml-auto text-2xs text-text-subtle">
+            ΔCU = {cuDelta >= 0 ? '+' : ''}
+            {cuDelta} ({cuPct}%)
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex w-7 h-7 items-center justify-center rounded text-text-muted hover:bg-surface-1 hover:text-text"
+            aria-label="Close"
+          >
+            <X size={14} aria-hidden />
+          </button>
+        </header>
+        <div className="grid grid-cols-2 divide-x divide-border max-h-[80vh] overflow-auto">
+          {[left, right].map((tx, i) => (
+            <div key={tx.id} className="p-4 flex flex-col gap-2 min-w-0">
+              <div className="text-2xs text-text-subtle uppercase tracking-wider">
+                {i === 0 ? 'LEFT' : 'RIGHT'} ·{' '}
+                <span className="font-mono">
+                  {new Date(tx.submittedAt).toISOString().slice(11, 19)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                {tx.success ? (
+                  <Badge size="sm" variant="success">
+                    <Check size={10} aria-hidden /> OK
+                  </Badge>
+                ) : (
+                  <Badge size="sm" variant="danger">
+                    <XCircle size={10} aria-hidden /> ERR
+                  </Badge>
+                )}
+                <span className="font-mono text-text-muted">CU {fmtCu(tx.cuConsumed)}</span>
+              </div>
+              <div className="text-2xs text-text-subtle font-mono break-all">
+                {tx.trace.programId}
+              </div>
+              {tx.errorMessage && (
+                <div className="text-2xs text-danger font-mono break-words">
+                  {tx.errorMessage}
+                </div>
+              )}
+              <pre className="font-mono text-2xs bg-surface-0 border border-border rounded p-2 max-h-[55vh] overflow-auto m-0 whitespace-pre-wrap break-all">
+                {tx.trace.logs.map((l) => l.raw).join('\n')}
+              </pre>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -288,23 +461,45 @@ function HistoryRow({
   tx,
   selected,
   onSelect,
+  onSaveAsTemplate,
+  compareMode = false,
+  compareChecked = false,
+  onToggleCompare,
 }: {
   tx: TxRecord;
   selected: boolean;
   onSelect: () => void;
+  onSaveAsTemplate: () => void;
+  compareMode?: boolean;
+  compareChecked?: boolean;
+  onToggleCompare?: () => void;
 }): JSX.Element {
   return (
     <div
       className={[
-        'grid grid-cols-[80px_70px_90px_1fr_1fr_60px] border-t border-border',
+        compareMode
+          ? 'grid grid-cols-[28px_80px_70px_90px_1fr_1fr_60px] border-t border-border'
+          : 'grid grid-cols-[80px_70px_90px_1fr_1fr_60px] border-t border-border',
         'cursor-pointer hover:bg-surface-1/40 items-center',
-        selected && 'bg-surface-2/40',
+        selected && !compareMode ? 'bg-surface-2/40' : '',
+        compareChecked ? 'bg-accent/10' : '',
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={onSelect}
+      onClick={compareMode ? onToggleCompare : onSelect}
       style={{ height: ROW_HEIGHT }}
     >
+      {compareMode && (
+        <div className="px-3 flex items-center justify-center">
+          <input
+            type="checkbox"
+            checked={compareChecked}
+            onChange={onToggleCompare}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Pick for compare"
+          />
+        </div>
+      )}
       <div className="px-3 font-mono text-2xs text-text-muted">
         {new Date(tx.submittedAt).toISOString().slice(11, 19)}
       </div>
@@ -324,7 +519,20 @@ function HistoryRow({
         <Pubkey value={tx.trace.programId} className="text-text-muted" />
       </div>
       <div className="px-3 text-2xs text-danger truncate">{tx.errorMessage ?? ''}</div>
-      <div className="px-3 text-right">
+      <div className="px-3 text-right flex items-center justify-end gap-1">
+        {tx.rawTxBase64 && (
+          <Button
+            variant="ghost"
+            size="xs"
+            title="Save this tx as a reusable template"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSaveAsTemplate();
+            }}
+          >
+            <Save size={11} aria-hidden />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="xs"

@@ -22,6 +22,13 @@ interface BuiltinDescriptor {
 
 const OTHER = '__other__';
 
+function looksLikeBase58Pubkey(s: string): boolean {
+  // Solana pubkeys are 32-44 chars base58 (no 0/O/I/l). Loose check — server
+  // does strict validation.
+  if (s.length < 32 || s.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
+}
+
 export function AddProgramForm({
   projectId,
   onDone,
@@ -43,6 +50,23 @@ export function AddProgramForm({
       .then(setBuiltins)
       .catch(() => setBuiltins([]));
   }, []);
+
+  // Clipboard-aware: if user copied a base58 pubkey before opening this
+  // form, prefill it. Cuts the "paste" step out for the common flow of
+  // grabbing a program id from Solana Explorer.
+  useEffect(() => {
+    if (programId) return;
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return;
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        const t = text.trim();
+        if (looksLikeBase58Pubkey(t)) setProgramId(t);
+      })
+      .catch(() => {
+        /* user denied clipboard perm — ignore */
+      });
+  }, [programId]);
 
   const chosenBuiltin = builtins.find((b) => b.programId === selection);
   const isOther = selection === OTHER;

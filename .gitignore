@@ -25,3 +25,4 @@ coverage
 IMPLEMENTATION_PLAN.md
 REQUIREMENTS.md
 plans/
+out-tsc/

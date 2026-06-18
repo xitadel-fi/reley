@@ -108,7 +108,7 @@ expectation is evaluated, and pass/fail is recorded per step + per case.
 | `name` | Human label |
 | `description` | What this case verifies |
 | `steps` | Ordered step list (same step kinds as workflows) |
-| `resetBefore` | If `true`, runner resets session state before this case |
+| `resetBefore` | If `true`, runner resets sandbox state before this case |
 
 ## Step kinds
 
@@ -120,7 +120,7 @@ the same fields (`templateId`, `ixs`, `computeUnitLimit`,
 
 ### `setProgramVersion` — persistent version flip
 
-Switches the session-level program-version pin **for the rest of the
+Switches the sandbox-level program-version pin **for the rest of the
 run** (unlike `programVersionOverrides` on a tx step, which restores
 after the step). Use this to test program upgrade/downgrade flows:
 
@@ -159,7 +159,7 @@ and/or `accountExpectations[]` (run after the step regardless of kind).
 ### `accountExpectations[]`
 
 Evaluated against post-step SVM state. Decoding for `fieldEquals` uses
-Anchor IDL of the owning program (session pin honored) → native SPL
+Anchor IDL of the owning program (sandbox pin honored) → native SPL
 layout fallback.
 
 | `kind` | Fields | Pass when |
@@ -175,7 +175,7 @@ layout fallback.
 ## Execution semantics
 
 - Suite runs all cases in order. Cases are independent only if you set
-  `resetBefore: true` (otherwise they share session state).
+  `resetBefore: true` (otherwise they share sandbox state).
 - Within a case, **all steps run** — failed tx never halts.
 - Per step: tx outcome captured, then `txExpectations[]` evaluated, then
   `accountExpectations[]` evaluated. Step passes iff every expectation
@@ -205,10 +205,35 @@ layout fallback.
 | `testSuite.delete` | `{ projectId, id }` | `{ ok: true }` |
 | `testSuite.run` | `{ sessionId, suiteId? | cases? }` | `TestSuiteRunResult` |
 
+## UI workflow (current desktop build)
+
+1. **Land on Automations Home** — recent-runs grid combines workflows +
+   test suites. Empty project → 2 big CTAs.
+2. **Open or create** — sidebar `Automations → Test Suites`. Clicking a
+   suite row opens a **read-only Detail view** first: hero header, KPI
+   tiles (Cases / Steps / Expectations / Last-run pass-rate %), last-run
+   banner, case cards (per-case PASS/FAIL pill, step count, expectation
+   count, reset-before indicator).
+3. **Edit** — explicit `Edit` button on the detail toolbar. Sticky toolbar
+   with Back / Save / Run. Headline name + description inputs. Case list
+   with per-case step editor.
+4. **Per-step controls** — color-coded kind icon, idx pill, name, Move
+   up/down, Duplicate, Remove. Expectations attach inline per step.
+5. **Run** — results push to the **bottom console dock** `Results` tab.
+   PASS/FAIL pill in banner. CaseResultView shows per-case nested step
+   results with expectation outcomes (description + actual/expected meta).
+
+## First-run guide
+
+Banner above the editor on first creation (`id === ''`) lists the 4-step
+flow: name the suite → add a case → attach expectations → save + run.
+Persisted via `relay:guide-testSuite-done`.
+
 ## Cross-references
 
 - `relay-workflow` — same step kinds, halt-on-fail semantics
 - `relay-tx-template` — instruction definitions
 - `relay-versions` — version pins
 - `relay-account` — account decoding (used by `fieldEquals`)
+- `relay-sandbox` — sandbox isolation for case state
 - `relay-troubleshooting` — debug failed expectations

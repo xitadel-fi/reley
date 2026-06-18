@@ -3,16 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
 import { useToast } from '../components/Toast';
-import {
-  Button,
-  Empty,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Pubkey,
-  Spinner,
-} from '../ui';
+import { Button, Empty, ErrorState, IconButton, Input, Pubkey, Spinner } from '../ui';
 
 interface KeypairMeta {
   id: string;
@@ -82,7 +73,7 @@ export function KeypairsPanel({
 
   const airdrop = async (pubkey: string): Promise<void> => {
     if (!activeSessionId) {
-      setErr('select a session first (left sidebar)');
+      setErr('select a sandbox first (left sidebar)');
       return;
     }
     const input = await dialogs.prompt({
@@ -176,44 +167,55 @@ export function KeypairsPanel({
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="panel">
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="m-0">Sandbox keypairs</h2>
-          <span className="text-2xs text-text-subtle">{items.length} keypairs</span>
+    <div className="entity-detail">
+      <div className="entity-detail-hero">
+        <div className="entity-detail-hero-main">
+          <span className="entity-detail-hero-icon" aria-hidden>
+            <Key size={22} />
+          </span>
+          <div className="entity-detail-hero-text">
+            <div className="entity-detail-hero-title-row">
+              <h1 className="entity-detail-hero-title">Keypairs</h1>
+              <span className="entity-pill entity-pill-workflow">sandbox-only</span>
+            </div>
+            <p className="entity-detail-hero-desc">
+              Local signing keys for sandbox transactions.{' '}
+              <span className="text-warning">Never use for mainnet funds.</span>
+            </p>
+          </div>
         </div>
-        <div className="text-xs text-text-muted mb-3">
-          Local-only. Used to sign sandbox transactions.{' '}
-          <span className="text-warning">Do not use for mainnet funds.</span>
+      </div>
+
+      {err && (
+        <div className="entity-detail-section">
+          <ErrorState title="Keypair error" message={err} />
         </div>
+      )}
 
-        {err && <ErrorState title="Keypair error" message={err} />}
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-          <Field label="Label">
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Add keypair</h3>
+          <span className="entity-detail-section-meta">generate fresh or import a secret</span>
+        </div>
+        <div className="keypair-add-grid">
+          <div className="keypair-add-row">
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="payer / admin / user-A"
+              placeholder="Label · payer / admin / user-A"
+              className="flex-1"
             />
-          </Field>
-          <div className="self-end">
             <Button variant="primary" size="md" disabled={!label.trim() || busy} onClick={generate}>
               {busy ? <Spinner size={12} /> : <Key size={12} aria-hidden />} Generate
             </Button>
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mt-3">
-          <Field label="Import secret" help="base58 OR Solana-CLI JSON ([64 bytes]).">
+          <div className="keypair-add-row">
             <Input
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
-              placeholder="base58 OR JSON array"
-              className="font-mono"
+              placeholder="Import · base58 OR Solana-CLI JSON ([64 bytes])"
+              className="font-mono flex-1"
             />
-          </Field>
-          <div className="self-end">
             <Button
               variant="outline"
               size="md"
@@ -226,7 +228,13 @@ export function KeypairsPanel({
         </div>
       </div>
 
-      <div className="panel">
+      <div className="entity-detail-section">
+        <div className="entity-detail-section-head">
+          <h3 className="entity-detail-section-title">Saved keypairs</h3>
+          <span className="entity-detail-section-meta">
+            {items.length} keypair{items.length === 1 ? '' : 's'}
+          </span>
+        </div>
         {items.length === 0 ? (
           <Empty
             size="sm"
@@ -235,76 +243,68 @@ export function KeypairsPanel({
             description="Generate or import one above."
           />
         ) : (
-          <div className="rounded-md border border-border overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-surface-1 text-2xs uppercase tracking-wider text-text-subtle">
-                <tr>
-                  <th className="text-left font-medium px-3 py-1.5">Label</th>
-                  <th className="text-left font-medium px-3 py-1.5">Pubkey</th>
-                  <th className="text-left font-medium px-3 py-1.5">Created</th>
-                  <th className="px-3 py-1.5 w-72" />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((k) => (
-                  <tr key={k.id} className="border-t border-border hover:bg-surface-1/40">
-                    <td className="px-3 py-1.5 text-text">{k.label}</td>
-                    <td className="px-3 py-1.5">
-                      <Pubkey value={k.pubkey} className="text-text-muted" />
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-2xs text-text-subtle">
-                      {new Date(k.createdAt).toISOString().slice(0, 19)}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex gap-1 justify-end">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          disabled={!activeSessionId || airdropping === k.pubkey}
-                          onClick={() => void airdrop(k.pubkey)}
-                          title={
-                            activeSessionId
-                              ? 'Fund this pubkey with SOL in active session'
-                              : 'Select a session first'
-                          }
-                        >
-                          {airdropping === k.pubkey ? (
-                            <Spinner size={10} />
-                          ) : (
-                            <Coins size={11} aria-hidden />
-                          )}
-                          Airdrop
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => void copySecret(k.id, k.label)}
-                          title="Copy base58 secret key"
-                        >
-                          <Copy size={11} aria-hidden /> secret
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => void copySecretJson(k.id, k.label)}
-                          title="Copy Solana-CLI JSON (64-byte array)"
-                        >
-                          <Code size={11} aria-hidden /> json
-                        </Button>
-                        <IconButton
-                          icon={<Trash2 size={11} />}
-                          label="Delete"
-                          size="sm"
-                          variant="danger"
-                          onClick={() => void remove(k.id, k.label)}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className="keypair-grid">
+            {items.map((k) => (
+              <li key={k.id} className="keypair-card">
+                <div className="keypair-card-head">
+                  <span className="keypair-card-icon" aria-hidden>
+                    <Key size={13} />
+                  </span>
+                  <span className="keypair-card-label">{k.label}</span>
+                  <IconButton
+                    icon={<Trash2 size={11} />}
+                    label="Delete"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void remove(k.id, k.label)}
+                    className="ml-auto"
+                  />
+                </div>
+                <div className="keypair-card-pubkey">
+                  <Pubkey value={k.pubkey} className="text-text-muted" />
+                </div>
+                <div className="keypair-card-meta font-mono">
+                  Created {new Date(k.createdAt).toISOString().slice(0, 19).replace('T', ' ')}
+                </div>
+                <div className="keypair-card-actions">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={!activeSessionId || airdropping === k.pubkey}
+                    onClick={() => void airdrop(k.pubkey)}
+                    title={
+                      activeSessionId
+                        ? 'Fund this pubkey with SOL in active sandbox'
+                        : 'Select a sandbox first'
+                    }
+                  >
+                    {airdropping === k.pubkey ? (
+                      <Spinner size={10} />
+                    ) : (
+                      <Coins size={11} aria-hidden />
+                    )}
+                    Airdrop
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => void copySecret(k.id, k.label)}
+                    title="Copy base58 secret key"
+                  >
+                    <Copy size={11} aria-hidden /> secret
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => void copySecretJson(k.id, k.label)}
+                    title="Copy Solana-CLI JSON (64-byte array)"
+                  >
+                    <Code size={11} aria-hidden /> json
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ol>
         )}
       </div>
     </div>

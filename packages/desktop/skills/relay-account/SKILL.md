@@ -80,7 +80,7 @@ order:
 2. `idls/<programId>.json` (program-default)
 3. None → decoder returns raw bytes
 
-Effective version = explicit override → session pin
+Effective version = explicit override → sandbox pin
 (`session.programVersionOverrides[programId]`) → project active
 (`program.activeVersionId`).
 

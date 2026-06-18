@@ -93,7 +93,7 @@ export function VersionCompareRunPanel({
 
   const run = async (): Promise<void> => {
     if (!activeSessionId) {
-      setErr('Pick a session in the sidebar first.');
+      setErr('Pick a sandbox in the sidebar first.');
       return;
     }
     if (!programId || !leftVersionId || !rightVersionId) {
@@ -148,8 +148,8 @@ export function VersionCompareRunPanel({
           program versions
         </h3>
         <div className="mt-1 text-xs text-text-muted">
-          Runs the same template against the active session twice — once with{' '}
-          <em>left</em> version pinned, once with <em>right</em>. Original session pin is
+          Runs the same template against the active sandbox twice — once with{' '}
+          <em>left</em> version pinned, once with <em>right</em>. Original sandbox pin is
           restored after.
         </div>
       </header>
@@ -248,7 +248,7 @@ export function VersionCompareRunPanel({
           </Field>
 
           {!activeSessionId && (
-            <div className="text-2xs text-warning">No session — pick one in the sidebar.</div>
+            <div className="text-2xs text-warning">No sandbox — pick one in the sidebar.</div>
           )}
         </>
       )}

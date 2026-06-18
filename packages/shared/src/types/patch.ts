@@ -12,6 +12,7 @@ export interface Patch {
   op: PatchOp;
   createdAt: number;
   enabled: boolean;
+  folderId?: Uuid | null;
 }
 
 export type PatchScope = 'project' | 'session';

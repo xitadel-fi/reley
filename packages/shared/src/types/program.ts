@@ -40,4 +40,7 @@ export interface ProgramEntry {
   elfBlobHash: string;
   source: ProgramSource;
   clonedAtSlot: bigint | null;
+
+  /** Optional sidebar folder. Null/undefined → root of Programs section. */
+  folderId?: Uuid | null;
 }

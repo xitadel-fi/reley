@@ -29,7 +29,12 @@ export class SessionRuntime {
     const session = this.ctx.sessions.get(sessionId);
     const project = this.ctx.projects.get(session.projectId);
 
-    const fingerprint = `${JSON.stringify(project.patches)}|${JSON.stringify(session.sessionPatches)}|${JSON.stringify(session.programVersionOverrides ?? {})}|${Object.values(project.programs)
+    // BigInt-safe stringify — patches can carry bigint fields (setLamports
+    // amount, rawSplice offsets via u64 args), and default JSON.stringify
+    // throws on bigint.
+    const stringify = (v: unknown): string =>
+      JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? val.toString() : val));
+    const fingerprint = `${stringify(project.patches)}|${stringify(session.sessionPatches)}|${stringify(session.programVersionOverrides ?? {})}|${Object.values(project.programs)
       .map((p) => `${p.programId}:${p.activeVersionId}`)
       .sort()
       .join(',')}`;

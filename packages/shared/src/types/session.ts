@@ -21,6 +21,12 @@ export interface TxRecord {
   cuConsumed: bigint;
   trace: TraceNode;
   touchedAccounts: Base58String[];
+  /**
+   * Serialized VersionedTransaction (base64). Captured at send time so the
+   * history row can be replayed / converted into a tx template later.
+   * Optional — older records persisted before this field shipped won't have it.
+   */
+  rawTxBase64?: string;
 }
 
 export interface SessionState {
@@ -52,3 +58,10 @@ export interface SessionMeta {
   createdAt: number;
   lastUsedAt: number;
 }
+
+// ───────────── Sandbox-named aliases (compat) ─────────────
+// Internal types kept as Session* on disk + IPC for backward compat with
+// existing projects + scripts. New code should prefer Sandbox* aliases.
+export type SandboxState = SessionState;
+export type SandboxMeta = SessionMeta;
+export type SandboxRef = SnapshotRef;

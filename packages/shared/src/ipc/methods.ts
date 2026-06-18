@@ -19,6 +19,20 @@ export const IpcMethod = {
   SessionExpireBlockhash: 'session.expireBlockhash',
   SessionGetClock: 'session.getClock',
   SessionGetVersionPins: 'session.getVersionPins',
+  // Sandbox aliases — new client/scripts should prefer these. Each resolves
+  // to the same worker handler as its `session.*` counterpart for back-compat.
+  SandboxCreate: 'sandbox.create',
+  SandboxList: 'sandbox.list',
+  SandboxOpen: 'sandbox.open',
+  SandboxRename: 'sandbox.rename',
+  SandboxReset: 'sandbox.reset',
+  SandboxDelete: 'sandbox.delete',
+  SandboxAirdrop: 'sandbox.airdrop',
+  SandboxWarpToSlot: 'sandbox.warpToSlot',
+  SandboxWarpByTime: 'sandbox.warpByTime',
+  SandboxExpireBlockhash: 'sandbox.expireBlockhash',
+  SandboxGetClock: 'sandbox.getClock',
+  SandboxGetVersionPins: 'sandbox.getVersionPins',
 
   ProgramAdd: 'program.add',
   ProgramAddLocal: 'program.addLocal',
@@ -65,6 +79,12 @@ export const IpcMethod = {
   TxTemplateSave: 'tx.templateSave',
   TxTemplateList: 'tx.templateList',
   TxTemplateDelete: 'tx.templateDelete',
+  // Folder grouping for templates + programs sections.
+  ProjectFolderCreate: 'project.folderCreate',
+  ProjectFolderRename: 'project.folderRename',
+  ProjectFolderRemove: 'project.folderRemove',
+  ProjectItemMove: 'project.itemMove',
+  TxHistoryToTemplate: 'tx.historyToTemplate',
   WorkflowSave: 'workflow.save',
   WorkflowList: 'workflow.list',
   WorkflowDelete: 'workflow.delete',
