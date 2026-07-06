@@ -52,17 +52,17 @@ const SKILLS: SkillMeta[] = Object.entries(SKILL_MODULES)
   })
   .sort((a, b) => {
     const order = [
-      'relay-overview',
-      'relay-sandbox',
-      'relay-workflow',
-      'relay-tests',
-      'relay-patch',
-      'relay-versions',
-      'relay-tx-template',
-      'relay-account',
-      'relay-keypair',
-      'relay-snapshot',
-      'relay-troubleshooting',
+      'reley-overview',
+      'reley-sandbox',
+      'reley-workflow',
+      'reley-tests',
+      'reley-patch',
+      'reley-versions',
+      'reley-tx-template',
+      'reley-account',
+      'reley-keypair',
+      'reley-snapshot',
+      'reley-troubleshooting',
     ];
     const ai = order.indexOf(a.id);
     const bi = order.indexOf(b.id);

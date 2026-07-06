@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="packages/desktop/build/icon.png" width="128" alt="Relay" />
+  <img src="packages/desktop/build/icon.png" width="128" alt="Reley" />
 </p>
 
-<h1 align="center">Relay</h1>
+<h1 align="center">Reley</h1>
 
 <p align="center">
   Clone any on-chain Solana program into a local LiteSVM sandbox.<br/>
@@ -17,13 +17,13 @@
 
 ---
 
-## What is Relay?
+## What is Reley?
 
-Relay is an Electron desktop app + Node CLI that runs a **per-project, per-session LiteSVM sandbox** loaded with real on-chain Solana programs.
+Reley is an Electron desktop app + Node CLI that runs a **per-project, per-session LiteSVM sandbox** loaded with real on-chain Solana programs.
 
-- **Clone any program** by pubkey — Relay fetches the ELF, account state, and any Anchor IDL.
+- **Clone any program** by pubkey — Reley fetches the ELF, account state, and any Anchor IDL.
 - **Patch state** of cloned PDAs and native accounts (SPL Token mint authority, Token-2022 fields, raw splices). Make USDC mintable to your own keypair. Set a DEX pool to a specific tick. Anything.
-- **Replay mainnet transactions** locally — Relay hydrates every touched account at `slot - 1`, runs the same tx in LiteSVM, and diffs the result.
+- **Replay mainnet transactions** locally — Reley hydrates every touched account at `slot - 1`, runs the same tx in LiteSVM, and diffs the result.
 - **Build, simulate, and send transactions** through a Tx Builder UI with Anchor IDL-aware fields, account suggestion, and instruction-level edit-in-place.
 - **Workflows** chain multiple steps (airdrop, warp time, warp slot, expire blockhash, reset session, send tx) into reusable scripts.
 - **JSON-RPC server** — publish a session as a Solana-compatible RPC endpoint. Point any client (`@solana/web3.js`, Anchor, Phantom dev mode, your own dApp) at `http://localhost:8899/session/<id>` and it'll talk to your LiteSVM as if it were mainnet.
@@ -40,9 +40,9 @@ Requires Node ≥ 20 (see `.nvmrc`), pnpm 11.
 ## Desktop app
 
 ```bash
-pnpm --filter @relay/desktop dev      # Electron + Vite HMR
-pnpm --filter @relay/desktop build    # production bundle
-pnpm --filter @relay/desktop package  # builds DMG / NSIS / AppImage in release/
+pnpm --filter @reley/desktop dev      # Electron + Vite HMR
+pnpm --filter @reley/desktop build    # production bundle
+pnpm --filter @reley/desktop package  # builds DMG / NSIS / AppImage in release/
 ```
 
 The Tx Builder, Workflow runner, Keypair vault, Patch editor, and Inspector all live here. Native modules (`litesvm`, `better-sqlite3`) load under Electron's Node ABI.
@@ -76,7 +76,7 @@ Inspector → **Details** → **RPC endpoint** → **Start**. Copy the session U
 http://127.0.0.1:8899/session/<session-id>
 ```
 
-Point anything Solana-compatible at it. See `examples/mint-usdc/` for a runnable example that mints mainnet USDC into a fresh wallet against a Relay session.
+Point anything Solana-compatible at it. See `examples/mint-usdc/` for a runnable example that mints mainnet USDC into a fresh wallet against a Reley session.
 
 ## Architecture
 
@@ -131,5 +131,5 @@ Pull requests, issues, and discussion welcome. Read **[CONTRIBUTING.md](CONTRIBU
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE).
-You can use, modify, and redistribute Relay **for any noncommercial purpose** — research, personal projects, education, internal tooling at a noncommercial organization, etc.
-You cannot use Relay for commercial purposes without a separate commercial license. Contact the maintainer.
+You can use, modify, and redistribute Reley **for any noncommercial purpose** — research, personal projects, education, internal tooling at a noncommercial organization, etc.
+You cannot use Reley for commercial purposes without a separate commercial license. Contact the maintainer.

@@ -14,7 +14,7 @@ const buttonVariants = cva(
         default:
           'bg-surface-1 text-text border border-border hover:bg-surface-2 hover:border-border-strong',
         primary:
-          'bg-accent text-text-inverted border border-accent hover:bg-accent-hover hover:border-accent-hover',
+          'grad-cta cta-shadow text-[#031018] border border-accent hover:-translate-y-[1px] active:translate-y-[1px] transition-transform',
         ghost: 'bg-transparent text-text hover:bg-surface-1',
         subtle: 'bg-surface-0 text-text hover:bg-surface-1 border border-transparent',
         danger:

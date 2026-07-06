@@ -1,6 +1,6 @@
 {
-  "name": "@relay/desktop",
-  "version": "0.0.0",
+  "name": "@reley/desktop",
+  "version": "1.0.0-beta.1",
   "private": true,
   "main": "./out/main/index.cjs",
   "type": "module",
@@ -17,8 +17,8 @@
     "package:linux": "electron-vite build && electron-builder --linux"
   },
   "build": {
-    "appId": "io.relay.desktop",
-    "productName": "Relay",
+    "appId": "io.reley.desktop",
+    "productName": "Reley",
     "copyright": "Copyright © 2026 hoangtuanictvn",
     "directories": {
       "buildResources": "build",
@@ -29,11 +29,18 @@
       "out/**/*",
       "build/icon.*",
       "skills/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/bufferutil/**",
+      "!**/node_modules/utf-8-validate/**"
     ],
     "mac": {
       "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
       "target": [
         {
           "target": "dmg",
@@ -97,8 +104,8 @@
     "@radix-ui/react-tabs": "^1.1.14",
     "@radix-ui/react-toast": "^1.2.16",
     "@radix-ui/react-tooltip": "^1.2.9",
-    "@relay/core": "workspace:*",
-    "@relay/shared": "workspace:*",
+    "@reley/core": "workspace:*",
+    "@reley/shared": "workspace:*",
     "@solana/web3.js": "^1.95.0",
     "@tanstack/react-virtual": "^3.14.2",
     "@uiw/react-codemirror": "^4.25.10",
@@ -107,6 +114,7 @@
     "bs58": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
     "litesvm": "^0.2.0",
     "lucide-react": "^0.460.0",
     "marked": "^18.0.5",

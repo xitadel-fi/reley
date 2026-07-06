@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { IpcMethod } from '@relay/shared';
+import { IpcMethod } from '@reley/shared';
 import { Keypair } from '@solana/web3.js';
 import { createHost } from '../host.js';
 import { printJson } from './print.js';

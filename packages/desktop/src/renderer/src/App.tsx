@@ -4,15 +4,12 @@ import {
   ChevronDown,
   ChevronRight,
   Command,
-  ChevronUp,
   EyeOff,
-  FlaskConical,
   FolderOpen,
   HelpCircle,
   Info,
   LayoutDashboard,
   LayoutList,
-  ListChecks,
   ListTree,
   Minus,
   Moon,
@@ -22,58 +19,52 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Pencil,
   Plus,
-  Rewind,
   Search,
-  Send,
   Square,
   Sun,
-  Trash2,
   Wallet,
-  Workflow as WorkflowIcon,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { ContextMenu, type MenuItem, useContextMenu } from './components/ContextMenu';
+import { useDialogs } from './components/Dialogs';
+import { EmptyProjectGuide } from './components/EmptyProjectGuide';
+import { HelpChip } from './components/HelpChip';
+import { HelpHint } from './components/HelpHint';
+import { InlineRename } from './components/InlineRename';
 import { Modal } from './components/Modal';
+import { OnboardingTour } from './components/OnboardingTour';
 import { ConfirmModal, PromptModal, type PromptOptions } from './components/PromptModal';
 import { useToast } from './components/Toast';
-import { useDialogs } from './components/Dialogs';
-import { Badge, Button, IconButton, Input, Kbd, Pubkey, useTheme } from './ui';
 import { AccountInspector } from './features/AccountInspector';
 import { AddAccountForm } from './features/AddAccountForm';
 import { AddProgramForm } from './features/AddProgramForm';
 import { AddProgramVersionForm } from './features/AddProgramVersionForm';
-import { IdlDiffPanel } from './features/IdlDiffPanel';
-import { VersionCompareRunPanel } from './features/VersionCompareRunPanel';
 import { AttachIdlForm } from './features/AttachIdlForm';
+import { AutomationsHome } from './features/AutomationsHome';
+import { AutomationsSidebarSection } from './features/AutomationsSidebarSection';
+import { ConsoleDock, type RunRecord } from './features/ConsoleDock';
+import { FileEditor } from './features/FileEditor';
+import { FilesTree } from './features/FilesTree';
+import { IdlDiffPanel } from './features/IdlDiffPanel';
 import { InspectorPane, type InspectorTab } from './features/InspectorPane';
 import { KeypairsPanel } from './features/KeypairsPanel';
 import { PatchAccountForm } from './features/PatchAccountForm';
-import { ReplayPanel } from './features/ReplayPanel';
-import { SnapshotsPanel } from './features/SnapshotsPanel';
-import { TxBuilderPanel } from './features/TxBuilderPanel';
-import { FileEditor } from './features/FileEditor';
-import { FilesTree } from './features/FilesTree';
-import { SettingsPanel } from './features/SettingsPanel';
-import { TxHistoryPanel } from './features/TxHistoryPanel';
-import { AutomationsHome } from './features/AutomationsHome';
-import { WorkflowsPanel } from './features/WorkflowsPanel';
-import { TestsPanel } from './features/TestsPanel';
-import { ConsoleDock, type RunRecord } from './features/ConsoleDock';
-import { TemplatesSidebarSection } from './features/TemplatesSidebarSection';
-import { AutomationsSidebarSection } from './features/AutomationsSidebarSection';
-import { PatchesSidebarSection } from './features/PatchesSidebarSection';
 import { ProjectPatchesPanel, SandboxPatchesPanel } from './features/PatchesPanels';
-import { InlineRename } from './components/InlineRename';
-import { GoalPicker } from './features/GoalPicker';
-import { HelpChip } from './components/HelpChip';
-import { HelpHint } from './components/HelpHint';
-import { OnboardingTour } from './components/OnboardingTour';
-import type { Project, ProgramEntry, ProjectMeta, SessionMeta } from './types';
+import { PatchesSidebarSection } from './features/PatchesSidebarSection';
+import { ReplayPanel } from './features/ReplayPanel';
+import { SettingsPanel } from './features/SettingsPanel';
+import { SnapshotsPanel } from './features/SnapshotsPanel';
+import { TemplatesSidebarSection } from './features/TemplatesSidebarSection';
+import { TestsPanel } from './features/TestsPanel';
+import { TxBuilderPanel } from './features/TxBuilderPanel';
+import { VersionCompareRunPanel } from './features/VersionCompareRunPanel';
+import { WorkflowsPanel } from './features/WorkflowsPanel';
+import type { ProgramEntry, Project, ProjectMeta, SessionMeta } from './types';
+import { Badge, Button, IconButton, Input, Kbd, Pubkey, useTheme } from './ui';
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 520;
@@ -81,7 +72,8 @@ const SIDEBAR_STORAGE_KEY = 'relay:sidebar-width';
 
 function useSidebarWidth(): [number, (n: number) => void] {
   const [width, setWidth] = useState<number>(() => {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SIDEBAR_STORAGE_KEY) : null;
+    const raw =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(SIDEBAR_STORAGE_KEY) : null;
     const n = raw ? Number(raw) : 280;
     return Number.isFinite(n) && n >= SIDEBAR_MIN ? Math.min(n, SIDEBAR_MAX) : 280;
   });
@@ -144,16 +136,16 @@ export function App(): JSX.Element {
   // the item in its editor view (skips the in-panel list). Active IDs
   // double as the sidebar highlight key.
   const [pendingWorkflowId, setPendingWorkflowId] = useState<string | null | undefined>(undefined);
-  const [pendingTestSuiteId, setPendingTestSuiteId] = useState<string | null | undefined>(undefined);
+  const [pendingTestSuiteId, setPendingTestSuiteId] = useState<string | null | undefined>(
+    undefined,
+  );
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
   const [activeTestSuiteId, setActiveTestSuiteId] = useState<string | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   // 'home' = AutomationsHome (recent runs / CTAs). 'workflow' / 'test' =
   // specific item open. Persisted last non-home mode so a deep sidebar
   // selection survives reload.
-  const [automationsMode, setAutomationsMode] = useState<'home' | 'workflow' | 'test'>(
-    'home',
-  );
+  const [automationsMode, setAutomationsMode] = useState<'home' | 'workflow' | 'test'>('home');
   const openAutomation = useCallback((kind: 'workflow' | 'testSuite', id: string | null) => {
     if (kind === 'workflow') {
       setPendingWorkflowId(id);
@@ -208,8 +200,7 @@ export function App(): JSX.Element {
     setRunRecord(rec);
     setRunRecordCounter((n) => n + 1);
     setHistoryDockOpen(true);
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('relay:history-dock', '1');
+    if (typeof localStorage !== 'undefined') localStorage.setItem('relay:history-dock', '1');
   }, []);
 
   // History bottom dock — collapsible. ⌘J toggles. Per-window persisted.
@@ -225,7 +216,7 @@ export function App(): JSX.Element {
       return next;
     });
   }, []);
-  const [helpSkillId, setHelpSkillId] = useState<string>('relay-overview');
+  const [helpSkillId, setHelpSkillId] = useState<string>('reley-overview');
   // Open Help in the right inspector pane (not as a workspace sub-tab).
   // updateInspectorTab + rightCollapsed are defined below — we wrap the
   // call so it picks up the latest references at click time.
@@ -245,8 +236,7 @@ export function App(): JSX.Element {
       return;
     }
     setGoalDismissed(
-      typeof localStorage !== 'undefined' &&
-        localStorage.getItem(goalKey(activeProjectId)) === '1',
+      typeof localStorage !== 'undefined' && localStorage.getItem(goalKey(activeProjectId)) === '1',
     );
   }, [activeProjectId]);
   const dismissGoal = (): void => {
@@ -276,6 +266,7 @@ export function App(): JSX.Element {
   >(null);
   const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
   const [pendingAccountAddress, setPendingAccountAddress] = useState<string | null>(null);
+  const [pendingPatchScope, setPendingPatchScope] = useState<'project' | 'session' | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
@@ -291,9 +282,34 @@ export function App(): JSX.Element {
     if (typeof localStorage !== 'undefined') localStorage.setItem('relay:sidebar-mode', m);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const exportRef = useRef<() => void>(() => {});
+
   useEffect(() => {
     return api.onMenu((cmd) => {
       if (cmd === 'open-settings') setSettingsOpen(true);
+      if (cmd === 'show-tour') setTourOpen(true);
+      if (cmd === 'export-project') exportRef.current();
+      if (cmd === 'import-project') {
+        void api
+          .call<{ canceled?: boolean; projectPath?: string; fileCount?: number }>(
+            'app.importProjectZip',
+            {},
+          )
+          .catch((e: unknown) => {
+            console.error('import failed', e);
+          });
+      }
+      if (cmd === 'show-welcome-intro') {
+        // Reset the welcome intro auto-hide flags so the cards reappear the
+        // next time the Welcome screen opens. If a project window is focused
+        // (so no Welcome screen visible), surface the quick-start tour as a
+        // sensible secondary action.
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem('relay:welcome-intro-dismissed');
+          localStorage.setItem('relay:welcome-open-count', '0');
+        }
+        setTourOpen(true);
+      }
     });
   }, []);
 
@@ -408,6 +424,36 @@ export function App(): JSX.Element {
   const toast = useToast();
   const dialogs = useDialogs();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  const exportActiveProject = useCallback(
+    async (projectName?: string): Promise<void> => {
+      try {
+        const result = await api.call<{
+          zipBase64: string;
+          suggestedFileName: string;
+        }>('project.export', {});
+        const saved = await api.call<{ canceled: boolean; path?: string; bytes?: number }>(
+          'app.dialog.saveZip',
+          {
+            defaultPath: result.suggestedFileName,
+            contentBase64: result.zipBase64,
+            title: projectName ? `Export ${projectName}` : 'Export project',
+          },
+        );
+        if (!saved.canceled && saved.path) toast.success(`Exported to ${saved.path}`);
+      } catch (e) {
+        toast.error(String(e));
+      }
+    },
+    [toast],
+  );
+
+  // Bridge for menu-bar "File > Export" — needs to call exportActiveProject
+  // with the current activeProject name without re-binding the menu listener.
+  useEffect(() => {
+    exportRef.current = () => void exportActiveProject(activeProject?.name);
+  });
 
   const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => {
@@ -443,6 +489,23 @@ export function App(): JSX.Element {
         localStorage.setItem('relay:right-collapsed', next ? '1' : '0');
       return next;
     });
+  }, []);
+
+  // Auto-collapse the inspector on narrow viewports so the workspace doesn't
+  // get squeezed. Threshold matches the layout audit: under 1200px wide,
+  // sidebar (200+) + workspace + inspector (320+) leaves < 500px usable.
+  useEffect(() => {
+    const onResize = (): void => {
+      if (window.innerWidth < 1200) {
+        setRightCollapsed(true);
+      }
+      if (window.innerWidth < 900) {
+        setLeftCollapsed(true);
+      }
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   // Keyboard: Ctrl/Cmd + B toggle left, Ctrl/Cmd + Alt + B toggle right,
@@ -694,7 +757,8 @@ export function App(): JSX.Element {
       { id: 'workspace', label: 'Workspace' },
       { id: 'keypairs', label: 'Keypairs' },
       { id: 'snapshots', label: 'Snapshots' },
-      { id: 'replay', label: 'Replay' },
+      // Replay temporarily hidden — re-enable here + in the nav rail above.
+      // { id: 'replay', label: 'Replay' },
     ];
     for (const v of views) {
       items.push({
@@ -763,7 +827,7 @@ export function App(): JSX.Element {
         id: 'cmd:open-demo',
         group: 'Command',
         label: 'Open demo project',
-        hint: 'preset Relay Demo with builtins + sample artifacts',
+        hint: 'preset Reley Demo with builtins + sample artifacts',
         onSelect: () => void api.call('app.showWelcome'),
       },
       {
@@ -807,7 +871,14 @@ export function App(): JSX.Element {
         id: 'cmd:open-help',
         group: 'Command',
         label: 'Open glossary / help',
-        onSelect: () => openHelp('relay-overview'),
+        onSelect: () => openHelp('reley-overview'),
+      },
+      {
+        id: 'cmd:show-tour',
+        group: 'Command',
+        label: 'Show quick-start tour',
+        hint: '4 steps · orientation refresher',
+        onSelect: () => setTourOpen(true),
       },
     );
 
@@ -871,6 +942,10 @@ export function App(): JSX.Element {
         }),
     },
     {
+      label: 'Export project as .zip…',
+      onSelect: () => void exportActiveProject(p.name),
+    },
+    {
       label: 'Delete project',
       danger: true,
       onSelect: () =>
@@ -894,159 +969,160 @@ export function App(): JSX.Element {
     const versions = prog?.versions ?? [];
     const activeVersionId = prog?.activeVersionId;
     return [
-    ...(versions.length > 1
-      ? (versions.map((v) => ({
-          label: `${v.id === activeVersionId ? '● ' : '  '}Use version: ${v.label}`,
-          onSelect: () =>
-            safeCall(async () => {
-              if (!activeProjectId) return;
-              await api.call('program.versionSetActive', {
-                projectId: activeProjectId,
-                programId,
-                versionId: v.id,
-              });
-              await reloadProject(activeProjectId);
-            }, `switched to ${v.label}`),
-        })) as MenuItem[])
-      : []),
-    {
-      label: 'Add version…',
-      onSelect: () => {
-        setPendingProgramId(programId);
-        setModal('addProgramVersion');
+      ...(versions.length > 1
+        ? (versions.map((v) => ({
+            label: `${v.id === activeVersionId ? '● ' : '  '}Use version: ${v.label}`,
+            onSelect: () =>
+              safeCall(async () => {
+                if (!activeProjectId) return;
+                await api.call('program.versionSetActive', {
+                  projectId: activeProjectId,
+                  programId,
+                  versionId: v.id,
+                });
+                await reloadProject(activeProjectId);
+              }, `switched to ${v.label}`),
+          })) as MenuItem[])
+        : []),
+      {
+        label: 'Add version…',
+        onSelect: () => {
+          setPendingProgramId(programId);
+          setModal('addProgramVersion');
+        },
       },
-    },
-    {
-      label: 'Diff IDLs…',
-      onSelect: () => setModal('diffIdl'),
-    },
-    ...(versions.length > 1
-      ? ([
-          {
-            label: 'Compare run across versions…',
-            onSelect: () => {
-              setPendingProgramId(programId);
-              setModal('compareVersionsRun');
+      {
+        label: 'Diff IDLs…',
+        onSelect: () => setModal('diffIdl'),
+      },
+      ...(versions.length > 1
+        ? ([
+            {
+              label: 'Compare run across versions…',
+              onSelect: () => {
+                setPendingProgramId(programId);
+                setModal('compareVersionsRun');
+              },
             },
-          },
-        ] as MenuItem[])
-      : []),
-    ...(versions.length > 1 && activeSessionId
-      ? (versions.map((v) => ({
-          label: `Pin "${v.label}" for active sandbox`,
-          onSelect: () =>
-            safeCall(async () => {
-              await api.call('program.versionPinForSession', {
-                sessionId: activeSessionId,
-                programId,
-                versionId: v.id,
-              });
-              const pins = await api.call<Record<string, string>>('session.getVersionPins', {
-                sessionId: activeSessionId,
-              });
-              setSessionPins(pins);
-              if (activeProjectId) await reloadProject(activeProjectId);
-            }, `pinned ${v.label} for sandbox`),
-        })) as MenuItem[])
-      : []),
-    ...(versions.length > 1 && activeSessionId
-      ? ([
-          {
-            label: 'Clear sandbox pin',
+          ] as MenuItem[])
+        : []),
+      ...(versions.length > 1 && activeSessionId
+        ? (versions.map((v) => ({
+            label: `Pin "${v.label}" for active sandbox`,
             onSelect: () =>
               safeCall(async () => {
                 await api.call('program.versionPinForSession', {
                   sessionId: activeSessionId,
                   programId,
-                  versionId: null,
+                  versionId: v.id,
                 });
                 const pins = await api.call<Record<string, string>>('session.getVersionPins', {
                   sessionId: activeSessionId,
                 });
                 setSessionPins(pins);
                 if (activeProjectId) await reloadProject(activeProjectId);
-              }, 'sandbox pin cleared'),
-          },
-        ] as MenuItem[])
-      : []),
-    {
-      label: 'Rename program…',
-      onSelect: () =>
-        setPrompt({
-          options: {
-            title: 'Rename program',
-            label: 'New label',
-            initial: prog?.label ?? programId,
-          },
-          onConfirm: async (label) => {
-            setPrompt(null);
-            if (!activeProjectId) return;
-            await safeCall(
-              () => api.call('program.setLabel', { projectId: activeProjectId, programId, label }),
-              'program renamed',
-            );
-            await reloadProject(activeProjectId);
-          },
-        }),
-    },
-    {
-      label: 'Add account under this program',
-      onSelect: () => {
-        setPendingProgramId(programId);
-        setModal('addAccount');
+              }, `pinned ${v.label} for sandbox`),
+          })) as MenuItem[])
+        : []),
+      ...(versions.length > 1 && activeSessionId
+        ? ([
+            {
+              label: 'Clear sandbox pin',
+              onSelect: () =>
+                safeCall(async () => {
+                  await api.call('program.versionPinForSession', {
+                    sessionId: activeSessionId,
+                    programId,
+                    versionId: null,
+                  });
+                  const pins = await api.call<Record<string, string>>('session.getVersionPins', {
+                    sessionId: activeSessionId,
+                  });
+                  setSessionPins(pins);
+                  if (activeProjectId) await reloadProject(activeProjectId);
+                }, 'sandbox pin cleared'),
+            },
+          ] as MenuItem[])
+        : []),
+      {
+        label: 'Rename program…',
+        onSelect: () =>
+          setPrompt({
+            options: {
+              title: 'Rename program',
+              label: 'New label',
+              initial: prog?.label ?? programId,
+            },
+            onConfirm: async (label) => {
+              setPrompt(null);
+              if (!activeProjectId) return;
+              await safeCall(
+                () =>
+                  api.call('program.setLabel', { projectId: activeProjectId, programId, label }),
+                'program renamed',
+              );
+              await reloadProject(activeProjectId);
+            },
+          }),
       },
-    },
-    {
-      label: hiddenPrograms.has(programId) ? 'Show in sidebar' : 'Hide from sidebar',
-      onSelect: () => setHidden(programId, !hiddenPrograms.has(programId)),
-    },
-    {
-      label: idlAttached.has(programId) ? 'Replace IDL…' : 'Attach IDL…',
-      onSelect: () => {
-        setPendingProgramId(programId);
-        setModal('attachIdl');
+      {
+        label: 'Add account under this program',
+        onSelect: () => {
+          setPendingProgramId(programId);
+          setModal('addAccount');
+        },
       },
-    },
-    ...(idlAttached.has(programId)
-      ? ([
-          {
-            label: 'Detach IDL',
-            onSelect: () =>
-              safeCall(async () => {
-                await api.call('idl.detach', { programId });
-                if (activeProjectId) await reloadProject(activeProjectId);
-              }),
-          },
-        ] as MenuItem[])
-      : []),
-    {
-      label: 'Refresh program ELF',
-      onSelect: () =>
-        safeCall(async () => {
-          if (!activeProjectId) return;
-          await api.call('program.add', { projectId: activeProjectId, programId });
-          await reloadProject(activeProjectId);
-        }),
-    },
-    {
-      label: 'Remove program',
-      danger: true,
-      onSelect: () =>
-        setConfirm({
-          title: 'Remove program',
-          message: `Remove "${programId.slice(0, 8)}…" from the project?`,
-          danger: true,
-          confirmText: 'Remove',
-          onConfirm: async () => {
-            setConfirm(null);
+      {
+        label: hiddenPrograms.has(programId) ? 'Show in sidebar' : 'Hide from sidebar',
+        onSelect: () => setHidden(programId, !hiddenPrograms.has(programId)),
+      },
+      {
+        label: idlAttached.has(programId) ? 'Replace IDL…' : 'Attach IDL…',
+        onSelect: () => {
+          setPendingProgramId(programId);
+          setModal('attachIdl');
+        },
+      },
+      ...(idlAttached.has(programId)
+        ? ([
+            {
+              label: 'Detach IDL',
+              onSelect: () =>
+                safeCall(async () => {
+                  await api.call('idl.detach', { programId });
+                  if (activeProjectId) await reloadProject(activeProjectId);
+                }),
+            },
+          ] as MenuItem[])
+        : []),
+      {
+        label: 'Refresh program ELF',
+        onSelect: () =>
+          safeCall(async () => {
             if (!activeProjectId) return;
-            await safeCall(() =>
-              api.call('program.remove', { projectId: activeProjectId, programId }),
-            );
+            await api.call('program.add', { projectId: activeProjectId, programId });
             await reloadProject(activeProjectId);
-          },
-        }),
-    },
+          }),
+      },
+      {
+        label: 'Remove program',
+        danger: true,
+        onSelect: () =>
+          setConfirm({
+            title: 'Remove program',
+            message: `Remove "${programId.slice(0, 8)}…" from the project?`,
+            danger: true,
+            confirmText: 'Remove',
+            onConfirm: async () => {
+              setConfirm(null);
+              if (!activeProjectId) return;
+              await safeCall(() =>
+                api.call('program.remove', { projectId: activeProjectId, programId }),
+              );
+              await reloadProject(activeProjectId);
+            },
+          }),
+      },
     ];
   };
 
@@ -1062,85 +1138,85 @@ export function App(): JSX.Element {
       }
     }
     return [
-    {
-      label: 'Inspect…',
-      onSelect: () => {
-        setPendingAccountAddress(address);
-        setModal('inspectAccount');
+      {
+        label: 'Inspect…',
+        onSelect: () => {
+          setPendingAccountAddress(address);
+          setModal('inspectAccount');
+        },
       },
-    },
-    {
-      label: 'Rename…',
-      onSelect: () =>
-        setPrompt({
-          options: {
-            title: 'Rename account',
-            label: 'New label',
-            initial: accLabel ?? address,
-          },
-          onConfirm: async (label) => {
-            setPrompt(null);
-            if (!activeProjectId) return;
-            await safeCall(
-              () => api.call('account.setLabel', { projectId: activeProjectId, address, label }),
-              'account renamed',
-            );
-            await reloadProject(activeProjectId);
-          },
-        }),
-    },
-    {
-      label: 'Patch fields…',
-      onSelect: () => {
-        setPendingAccountAddress(address);
-        setModal('patchAccount');
+      {
+        label: 'Rename…',
+        onSelect: () =>
+          setPrompt({
+            options: {
+              title: 'Rename account',
+              label: 'New label',
+              initial: accLabel ?? address,
+            },
+            onConfirm: async (label) => {
+              setPrompt(null);
+              if (!activeProjectId) return;
+              await safeCall(
+                () => api.call('account.setLabel', { projectId: activeProjectId, address, label }),
+                'account renamed',
+              );
+              await reloadProject(activeProjectId);
+            },
+          }),
       },
-    },
-    {
-      label: 'Copy address',
-      onSelect: () => navigator.clipboard.writeText(address),
-    },
-    {
-      label: 'Refresh from RPC',
-      onSelect: () =>
-        safeCall(async () => {
-          if (!activeProjectId || !activeProject) return;
-          let owner: string | null = null;
-          for (const [pid, prog] of Object.entries(activeProject.programs)) {
-            if (prog.accounts.some((a) => a.address === address)) {
-              owner = pid;
-              break;
+      {
+        label: 'Patch fields…',
+        onSelect: () => {
+          setPendingAccountAddress(address);
+          setModal('patchAccount');
+        },
+      },
+      {
+        label: 'Copy address',
+        onSelect: () => navigator.clipboard.writeText(address),
+      },
+      {
+        label: 'Refresh from RPC',
+        onSelect: () =>
+          safeCall(async () => {
+            if (!activeProjectId || !activeProject) return;
+            let owner: string | null = null;
+            for (const [pid, prog] of Object.entries(activeProject.programs)) {
+              if (prog.accounts.some((a) => a.address === address)) {
+                owner = pid;
+                break;
+              }
             }
-          }
-          if (!owner) return;
-          await api.call('account.remove', { projectId: activeProjectId, address });
-          await api.call('account.add', {
-            projectId: activeProjectId,
-            programId: owner,
-            address,
-          });
-          await reloadProject(activeProjectId);
-        }),
-    },
-    {
-      label: 'Remove account',
-      danger: true,
-      onSelect: () =>
-        setConfirm({
-          title: 'Remove account',
-          message: `Remove ${address.slice(0, 8)}…${address.slice(-4)}?`,
-          danger: true,
-          confirmText: 'Remove',
-          onConfirm: async () => {
-            setConfirm(null);
-            if (!activeProjectId) return;
-            await safeCall(() =>
-              api.call('account.remove', { projectId: activeProjectId, address }),
-            );
+            if (!owner) return;
+            await api.call('account.remove', { projectId: activeProjectId, address });
+            await api.call('account.add', {
+              projectId: activeProjectId,
+              programId: owner,
+              address,
+            });
             await reloadProject(activeProjectId);
-          },
-        }),
-    },
+          }),
+      },
+      {
+        label: 'Remove account',
+        danger: true,
+        onSelect: () =>
+          setConfirm({
+            title: 'Remove account',
+            message: `Remove ${address.slice(0, 8)}…${address.slice(-4)}?`,
+            danger: true,
+            confirmText: 'Remove',
+            onConfirm: async () => {
+              setConfirm(null);
+              if (!activeProjectId) return;
+              await safeCall(() =>
+                api.call('account.remove', { projectId: activeProjectId, address }),
+              );
+              await reloadProject(activeProjectId);
+            },
+          }),
+      },
     ];
   };
 
@@ -1201,8 +1277,7 @@ export function App(): JSX.Element {
         p.label.toLowerCase().includes(term) ||
         p.programId.toLowerCase().includes(term) ||
         p.accounts.some(
-          (a) =>
-            a.label.toLowerCase().includes(term) || a.address.toLowerCase().includes(term),
+          (a) => a.label.toLowerCase().includes(term) || a.address.toLowerCase().includes(term),
         );
       return hit;
     });
@@ -1227,9 +1302,7 @@ export function App(): JSX.Element {
   const programPatchCount = useMemo<Record<string, number>>(() => {
     const counts: Record<string, number> = {};
     if (!activeProject) return counts;
-    const allPatches = [
-      ...(activeProject.patches as Array<{ target: string }>),
-    ];
+    const allPatches = [...(activeProject.patches as Array<{ target: string }>)];
     if (activeSessionId) {
       const sess = sessions.find((s) => s.id === activeSessionId);
       if (sess) {
@@ -1296,17 +1369,28 @@ export function App(): JSX.Element {
         className={`app-header${api.platform === 'darwin' ? ' is-mac' : api.platform === 'win32' ? ' is-win' : ' is-linux'}`}
       >
         <div className="app-header-left">
-          <div className="title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <div
+            className="title"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              fontFamily: 'Satoshi, Figtree, sans-serif',
+              fontWeight: 900,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+            }}
+          >
             <img
               src="./icon.svg"
               alt=""
               aria-hidden
-              width={18}
-              height={18}
+              width={22}
+              height={22}
               draggable={false}
-              style={{ borderRadius: 4 }}
+              style={{ borderRadius: 5 }}
             />
-            RELAY
+            RELEY
           </div>
         </div>
         <div className="app-header-center">
@@ -1323,6 +1407,14 @@ export function App(): JSX.Element {
           </button>
         </div>
         <div className="app-header-right">
+          <button
+            className="header-side-toggle"
+            onClick={() => setTourOpen(true)}
+            title="Show quick-start tour"
+            aria-label="Quick-start tour"
+          >
+            <HelpCircle size={14} />
+          </button>
           <ThemeToggle />
           <button
             className={`header-side-toggle${!leftCollapsed ? ' active' : ''}`}
@@ -1403,12 +1495,15 @@ export function App(): JSX.Element {
               label: 'Snapshots',
               tip: 'Sandbox snapshots · save + restore state',
             },
-            {
-              id: 'replay',
-              icon: <Rewind size={18} aria-hidden />,
-              label: 'Replay',
-              tip: 'Replay mainnet tx · forensics on real signatures',
-            },
+            // Replay temporarily hidden — leave entry commented in so it's
+            // easy to re-enable. Underlying ReplayPanel + handlers stay live
+            // so existing record types + IPC keep building.
+            // {
+            //   id: 'replay',
+            //   icon: <Rewind size={18} aria-hidden />,
+            //   label: 'Replay',
+            //   tip: 'Replay mainnet tx · forensics on real signatures',
+            // },
           ] as Array<{ id: NavView; icon: ReactNode; label: string; tip: string }>
         ).map((v) => (
           <NavRailButton
@@ -1464,7 +1559,7 @@ export function App(): JSX.Element {
               <HelpHint
                 label="Sandbox"
                 hint="Isolated local Solana env for testing. State is yours alone — mutate, warp time, reset freely."
-                skillId="relay-sandbox"
+                skillId="reley-sandbox"
                 onOpen={openHelp}
               />
             </span>
@@ -1484,7 +1579,7 @@ export function App(): JSX.Element {
               <HelpHint
                 label="Sandbox"
                 hint="Isolated local Solana env for testing. State is yours alone — mutate, warp time, reset freely."
-                skillId="relay-sandbox"
+                skillId="reley-sandbox"
                 onOpen={openHelp}
               />
             </span>
@@ -1550,11 +1645,7 @@ export function App(): JSX.Element {
         )}
 
         {activeProject && sidebarMode === 'files' && (
-          <FilesTree
-            selected={activeFile}
-            onSelect={openFileTab}
-            refreshKey={filesRefreshKey}
-          />
+          <FilesTree selected={activeFile} onSelect={openFileTab} refreshKey={filesRefreshKey} />
         )}
 
         {activeProject && sidebarMode === 'project' && (
@@ -1618,7 +1709,7 @@ export function App(): JSX.Element {
                     )}
                   </span>
                   Programs
-                  <HelpChip skillId="relay-versions" onOpen={openHelp} label="Programs" />
+                  <HelpChip skillId="reley-versions" onOpen={openHelp} label="Programs" />
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className="tree-section-count">
@@ -1651,28 +1742,27 @@ export function App(): JSX.Element {
                 </span>
               </button>
 
-              {programsSectionOpen &&
-                Object.keys(activeProject.programs).length >= 4 && (
-                  <div className="programs-filter-bar">
-                    {(
-                      [
-                        { id: 'all', label: 'All' },
-                        { id: 'idl', label: 'IDL' },
-                        { id: 'multi-version', label: 'multi-ver' },
-                        { id: 'patched', label: 'patched' },
-                      ] as const
-                    ).map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`programs-filter-chip${programsFilter === f.id ? ' active' : ''}`}
-                        onClick={() => setProgramsFilter(f.id)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              {programsSectionOpen && Object.keys(activeProject.programs).length >= 4 && (
+                <div className="programs-filter-bar">
+                  {(
+                    [
+                      { id: 'all', label: 'All' },
+                      { id: 'idl', label: 'IDL' },
+                      { id: 'multi-version', label: 'multi-ver' },
+                      { id: 'patched', label: 'patched' },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={`programs-filter-chip${programsFilter === f.id ? ' active' : ''}`}
+                      onClick={() => setProgramsFilter(f.id)}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {programsSectionOpen && programsView === 'list' && (
                 <ProgramsListView
@@ -1695,9 +1785,7 @@ export function App(): JSX.Element {
                 <>
                   {visiblePrograms.length === 0 && hiddenProgramList.length === 0 ? (
                     searchTerm ? (
-                      <div className="px-6 py-1.5 text-2xs text-text-subtle italic">
-                        no matches
-                      </div>
+                      <div className="px-6 py-1.5 text-2xs text-text-subtle italic">no matches</div>
                     ) : (
                       <div className="tree-empty-cta">
                         <div className="tree-empty-title">No programs yet</div>
@@ -1796,7 +1884,9 @@ export function App(): JSX.Element {
                                   variant="accent"
                                   title="Sandbox pin override active"
                                 >
-                                  pin: {prog.versions.find((v) => v.id === sessionPins[prog.programId])?.label ?? '?'}
+                                  pin:{' '}
+                                  {prog.versions.find((v) => v.id === sessionPins[prog.programId])
+                                    ?.label ?? '?'}
                                 </Badge>
                               )}
                               {sourceKind && (
@@ -1907,9 +1997,7 @@ export function App(): JSX.Element {
                               <EyeOff size={10} aria-hidden />
                             </span>
                             <span className="tree-program-label">
-                              {prog.label.length > 24
-                                ? `${prog.label.slice(0, 24)}…`
-                                : prog.label}
+                              {prog.label.length > 24 ? `${prog.label.slice(0, 24)}…` : prog.label}
                             </span>
                           </button>
                         ))}
@@ -1928,7 +2016,6 @@ export function App(): JSX.Element {
             />
           </>
         )}
-
       </aside>
 
       {!leftCollapsed && (
@@ -1951,7 +2038,7 @@ export function App(): JSX.Element {
           <>
             {!activeProject ? (
               <div className="panel" style={{ textAlign: 'center', padding: 36 }}>
-                <h2 style={{ marginBottom: 8 }}>Welcome to Relay</h2>
+                <h2 style={{ marginBottom: 8 }}>Welcome to Reley</h2>
                 <div style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 18 }}>
                   Clone Solana programs + accounts. Patch state. Simulate, submit, replay.
                 </div>
@@ -1984,6 +2071,33 @@ export function App(): JSX.Element {
                 {/* Center panel + bottom history dock */}
                 <div className="workspace-center">
                   <div className="workspace-panel">
+                    {activeProject && (
+                      <EmptyProjectGuide
+                        projectId={activeProject.id}
+                        hasPrograms={Object.keys(activeProject.programs).length > 0}
+                        hasAutomations={
+                          (activeProject.workflows ?? []).length > 0 ||
+                          (activeProject.testSuites ?? []).length > 0
+                        }
+                        hasRun={
+                          typeof localStorage !== 'undefined' &&
+                          Object.keys(localStorage).some((k) => k.startsWith('relay:lastrun:'))
+                        }
+                        onAddProgram={() => setModal('addProgram')}
+                        onNewWorkflow={() => openAutomation('workflow', null)}
+                        onOpenAutomations={() => {
+                          setNavView('workspace');
+                          setWorkspaceTab('automations');
+                          goToAutomationsHome();
+                          // Pop the bottom dock too so the user can see the
+                          // Results tab where output will land once they
+                          // click Run on something.
+                          setHistoryDockOpen(true);
+                          if (typeof localStorage !== 'undefined')
+                            localStorage.setItem('relay:history-dock', '1');
+                        }}
+                      />
+                    )}
                     {workspaceTab === 'builder' && (
                       <TxBuilderPanel
                         project={activeProject}
@@ -1993,7 +2107,8 @@ export function App(): JSX.Element {
                         onOpenHelp={openHelp}
                       />
                     )}
-                    {workspaceTab === 'automations' && activeProject &&
+                    {workspaceTab === 'automations' &&
+                      activeProject &&
                       (automationsMode === 'home' ? (
                         <AutomationsHome
                           project={activeProject}
@@ -2033,12 +2148,22 @@ export function App(): JSX.Element {
                           onChange={() => {
                             if (activeProjectId) void reloadProject(activeProjectId);
                           }}
+                          onNewPatch={(scope) => {
+                            setPendingAccountAddress(null);
+                            setPendingPatchScope(scope);
+                            setModal('patchAccount');
+                          }}
                         />
                       ) : (
                         <ProjectPatchesPanel
                           project={activeProject}
                           onChange={() => {
                             if (activeProjectId) void reloadProject(activeProjectId);
+                          }}
+                          onNewPatch={(scope) => {
+                            setPendingAccountAddress(null);
+                            setPendingPatchScope(scope);
+                            setModal('patchAccount');
                           }}
                         />
                       ))}
@@ -2080,9 +2205,9 @@ export function App(): JSX.Element {
       <nav className="inspector-rail">
         {(
           [
+            { id: 'help', icon: <HelpCircle size={14} aria-hidden />, label: 'Help' },
             { id: 'details', icon: <Info size={14} aria-hidden />, label: 'Details' },
             { id: 'activity', icon: <Activity size={14} aria-hidden />, label: 'Activity' },
-            { id: 'help', icon: <HelpCircle size={14} aria-hidden />, label: 'Help' },
             { id: 'shortcuts', icon: <Command size={14} aria-hidden />, label: 'Shortcuts' },
           ] as Array<{ id: InspectorTab; icon: ReactNode; label: string }>
         ).map((t) => {
@@ -2188,15 +2313,18 @@ export function App(): JSX.Element {
           />
         </Modal>
       )}
-      {modal === 'patchAccount' && activeProjectId && pendingAccountAddress && (
+      {modal === 'patchAccount' && activeProjectId && (
         <Modal onClose={() => setModal(null)}>
           <PatchAccountForm
             projectId={activeProjectId}
             sessionId={activeSessionId}
-            address={pendingAccountAddress}
+            sessions={sessions}
+            address={pendingAccountAddress ?? undefined}
             project={activeProject}
+            initialScope={pendingPatchScope ?? undefined}
             onDone={async () => {
               setModal(null);
+              setPendingPatchScope(null);
               if (activeProjectId) await reloadProject(activeProjectId);
             }}
           />
@@ -2229,7 +2357,7 @@ export function App(): JSX.Element {
         onClose={() => setPaletteOpen(false)}
       />
 
-      <OnboardingTour />
+      <OnboardingTour forceOpen={tourOpen} onClose={() => setTourOpen(false)} />
 
       <footer className="status-bar">
         {activeProject ? (
@@ -2254,7 +2382,44 @@ export function App(): JSX.Element {
         ) : (
           <span className="status-item">no project</span>
         )}
+        {activeProject &&
+          (() => {
+            // Compute setup progress (mirrors EmptyProjectGuide logic).
+            const hasPrograms = Object.keys(activeProject.programs).length > 0;
+            const hasAutomations =
+              (activeProject.workflows ?? []).length > 0 ||
+              (activeProject.testSuites ?? []).length > 0;
+            const hasRun =
+              typeof localStorage !== 'undefined' &&
+              Object.keys(localStorage).some((k) => k.startsWith('relay:lastrun:'));
+            const done = (hasPrograms ? 1 : 0) + (hasAutomations ? 1 : 0) + (hasRun ? 1 : 0);
+            if (done >= 3) return null;
+            return (
+              <button
+                type="button"
+                className="status-item interactive setup-chip"
+                onClick={() => setTourOpen(true)}
+                title="Click for the quick-start tour"
+              >
+                <HelpCircle size={11} aria-hidden />
+                <span>Setup: {done}/3</span>
+              </button>
+            );
+          })()}
         <span className="status-spacer" />
+        <a
+          className="status-item interactive"
+          href="https://xitadel.fi"
+          target="_blank"
+          rel="noreferrer"
+          title="Reley is built by Xitadel"
+          style={{ textDecoration: 'none' }}
+        >
+          <span style={{ color: 'rgb(var(--color-text-muted))', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700 }}>Built by</span>
+          <span style={{ fontFamily: 'Satoshi, Figtree, sans-serif', fontWeight: 900, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            Xitadel
+          </span>
+        </a>
         <button
           type="button"
           className="status-item interactive"
@@ -2266,9 +2431,7 @@ export function App(): JSX.Element {
         </button>
       </footer>
 
-      {settingsOpen && (
-        <SettingsOverlay onClose={() => setSettingsOpen(false)} />
-      )}
+      {settingsOpen && <SettingsOverlay onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
@@ -2282,10 +2445,7 @@ function SettingsOverlay({ onClose }: { onClose: () => void }): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div
-      className="fixed inset-0 z-40 flex flex-col bg-bg"
-      style={{ top: 40 /* header height */ }}
-    >
+    <div className="fixed inset-0 z-40 flex flex-col bg-bg" style={{ top: 40 /* header height */ }}>
       <div className="flex items-center justify-between px-4 h-9 border-b border-border bg-surface-0">
         <div className="text-xs uppercase tracking-widest text-text-subtle font-semibold">
           Settings
@@ -2353,10 +2513,7 @@ function FileTabsAndEditor({
               title={path}
             >
               {isActive && (
-                <span
-                  aria-hidden
-                  className="absolute top-0 left-0 right-0 h-[2px] bg-accent"
-                />
+                <span aria-hidden className="absolute top-0 left-0 right-0 h-[2px] bg-accent" />
               )}
               <span className="font-mono truncate max-w-[200px]">{name}</span>
               <button
@@ -2401,7 +2558,14 @@ function ProgramsListView({
   onAccountCtx: (e: React.MouseEvent, address: string) => void;
 }): JSX.Element {
   type Row =
-    | { kind: 'program'; programId: string; label: string; hasIdl: boolean; source: string | null; count: number }
+    | {
+        kind: 'program';
+        programId: string;
+        label: string;
+        hasIdl: boolean;
+        source: string | null;
+        count: number;
+      }
     | { kind: 'account'; programId: string; address: string; label: string };
 
   const rows: Row[] = [];
@@ -2552,4 +2716,3 @@ function NavRailButton({
     </button>
   );
 }
-

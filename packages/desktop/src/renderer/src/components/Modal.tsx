@@ -10,7 +10,7 @@ export function Modal({
 }): JSX.Element {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent size="xl" className="max-w-fit">
+      <DialogContent size="xl" className="w-[min(640px,92vw)]">
         {children}
       </DialogContent>
     </Dialog>

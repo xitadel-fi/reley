@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { cp, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { BrowserWindow, shell } from 'electron';
+import { unzipSync } from 'fflate';
 import { getAppStore } from './app-store';
 
 import {
@@ -11,9 +12,37 @@ import {
   type SpawnOptions,
 } from './workerMgr';
 
-const RELAY_MANIFEST = '.relay.json';
-// Keep in sync with STORE_FORMAT_VERSION in @relay/core/store/persistence.ts.
+const MANIFEST_NEW = '.reley.json';
+const MANIFEST_LEGACY = '.relay.json';
+const STORE_DIR_NEW = '.reley';
+const STORE_DIR_LEGACY = '.relay';
+// Keep in sync with STORE_FORMAT_VERSION in @reley/core/store/persistence.ts.
 const PROJECT_FORMAT_VERSION = 2;
+
+function manifestPathFor(projectPath: string): string {
+  const next = join(projectPath, MANIFEST_NEW);
+  if (existsSync(next)) return next;
+  const legacy = join(projectPath, MANIFEST_LEGACY);
+  if (existsSync(legacy)) return legacy;
+  return next;
+}
+
+function storeDirFor(projectPath: string): string {
+  const next = join(projectPath, STORE_DIR_NEW);
+  if (existsSync(next)) return next;
+  const legacy = join(projectPath, STORE_DIR_LEGACY);
+  if (existsSync(legacy)) return legacy;
+  return next;
+}
+
+export function isProjectFolder(p: string): boolean {
+  return (
+    existsSync(join(p, MANIFEST_NEW)) ||
+    existsSync(join(p, MANIFEST_LEGACY)) ||
+    existsSync(join(p, STORE_DIR_NEW)) ||
+    existsSync(join(p, STORE_DIR_LEGACY))
+  );
+}
 
 const windowToPath = new Map<number, string>();
 const pathToWindow = new Map<string, number>();
@@ -33,10 +62,9 @@ export async function createProjectFolder(
   if (!existsSync(projectPath)) {
     await mkdir(projectPath, { recursive: true });
   }
-  const manifestPath = join(projectPath, RELAY_MANIFEST);
-  if (existsSync(manifestPath)) return; // Already a project; just open it.
-
-  const relayDir = join(projectPath, '.relay');
+  if (isProjectFolder(projectPath)) return; // Already a project; just open it.
+  const manifestPath = join(projectPath, MANIFEST_NEW);
+  const relayDir = join(projectPath, STORE_DIR_NEW);
   await mkdir(join(relayDir, 'sessions'), { recursive: true });
   await mkdir(join(relayDir, 'blobs'), { recursive: true });
   await mkdir(join(relayDir, 'keypairs'), { recursive: true });
@@ -67,8 +95,76 @@ export async function createProjectFolder(
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
   // Ship Claude Code skill bundle alongside every new project so an agent
-  // working in this folder gets Relay-specific orientation automatically.
+  // working in this folder gets Reley-specific orientation automatically.
   await copyBundledSkills(projectPath);
+}
+
+/**
+ * Extract a `.reley.zip` produced by `project.export` into `destParentDir`.
+ * Zip layout: single top-level folder containing the project manifest and
+ * `.reley/` store dir. Returns the absolute path to the extracted project
+ * root. Auto-syncs bundled Claude skills if the extracted project doesn't
+ * already ship them.
+ *
+ * Conflict handling: if the chosen project name collides with an existing
+ * folder under destParentDir, append `-1`, `-2`, … until unique.
+ */
+export async function importProjectFromZip(
+  zipPath: string,
+  destParentDir: string,
+): Promise<{ projectPath: string; fileCount: number }> {
+  const raw = await readFile(zipPath);
+  const entries = unzipSync(new Uint8Array(raw));
+
+  // Detect single top-level folder. fflate keys are POSIX paths.
+  const topDirs = new Set<string>();
+  for (const key of Object.keys(entries)) {
+    const slash = key.indexOf('/');
+    if (slash === -1) continue;
+    topDirs.add(key.slice(0, slash));
+  }
+  if (topDirs.size !== 1) {
+    throw new Error(
+      `expected exactly one top-level folder in zip, got ${topDirs.size} (${[...topDirs].slice(0, 3).join(', ')})`,
+    );
+  }
+  const topName = [...topDirs][0]!;
+
+  await mkdir(destParentDir, { recursive: true });
+  let projectPath = join(destParentDir, topName);
+  let suffix = 1;
+  while (existsSync(projectPath)) {
+    projectPath = join(destParentDir, `${topName}-${suffix}`);
+    suffix += 1;
+  }
+  await mkdir(projectPath, { recursive: true });
+
+  // Write every file under <projectPath>, stripping the top-level dir prefix.
+  let fileCount = 0;
+  for (const [key, bytes] of Object.entries(entries)) {
+    // Directory entry — fflate represents these as keys ending in '/' with
+    // empty payload. mkdir on file write covers nesting; skip.
+    if (key.endsWith('/')) continue;
+    const rel = key.slice(topName.length + 1); // drop "<topName>/"
+    if (!rel) continue;
+    const out = join(projectPath, rel);
+    await mkdir(dirname(out), { recursive: true });
+    await writeFile(out, bytes);
+    fileCount += 1;
+  }
+
+  if (!isProjectFolder(projectPath)) {
+    throw new Error(
+      `extracted folder is missing project manifest (.reley.json / .relay.json): ${projectPath}`,
+    );
+  }
+
+  // Sync bundled Claude skills if the imported zip didn't ship them or shipped
+  // an older copy. copyBundledSkills uses `force: true` so it always wins on
+  // the relay-* bundle names — user-authored skills under other names stay.
+  await copyBundledSkills(projectPath);
+
+  return { projectPath, fileCount };
 }
 
 /**
@@ -89,14 +185,32 @@ async function copyBundledSkills(projectPath: string): Promise<void> {
   }
 }
 
-export function isProjectFolder(p: string): boolean {
-  return existsSync(join(p, RELAY_MANIFEST));
+/**
+ * If `p` itself is a Reley project, return it. Else if `p` contains exactly
+ * one subfolder that IS a project, descend into it (common case: user picks
+ * the parent that holds an unzipped project folder). Else return null.
+ */
+function resolveProjectRoot(p: string): string | null {
+  if (isProjectFolder(p)) return p;
+  if (!existsSync(p)) return null;
+  try {
+    const subdirs = readdirSync(p)
+      .filter((name) => !name.startsWith('.') && statSync(join(p, name)).isDirectory())
+      .map((name) => join(p, name));
+    const projects = subdirs.filter(isProjectFolder);
+    if (projects.length === 1) return projects[0]!;
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 export async function focusOrOpenProjectWindow(projectPath: string): Promise<void> {
-  if (!isProjectFolder(projectPath)) {
-    throw new Error(`not a Relay project: ${projectPath}`);
+  const resolved = resolveProjectRoot(projectPath);
+  if (!resolved) {
+    throw new Error(`not a Reley project: ${projectPath}`);
   }
+  projectPath = resolved;
   const existingId = pathToWindow.get(projectPath);
   if (existingId !== undefined) {
     const existing = BrowserWindow.fromId(existingId);
@@ -173,8 +287,8 @@ function createProjectWindow(opts: CreateWinOptions): BrowserWindow {
     frame: isLinux ? false : undefined,
     backgroundColor: '#0c0e12',
     title: opts.welcome
-      ? 'Relay'
-      : `Relay — ${opts.projectRoot ? basename(opts.projectRoot) : ''}`,
+      ? 'Reley'
+      : `Reley — ${opts.projectRoot ? basename(opts.projectRoot) : ''}`,
     ...(process.platform === 'win32' && {
       titleBarOverlay: {
         color: '#0c0e12',

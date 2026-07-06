@@ -554,7 +554,7 @@ export function AutomationsSidebarSection({
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
-                onOpenHelp('relay-workflow');
+                onOpenHelp('reley-workflow');
               }}
               title="What is an automation?"
               className="inline-flex items-center justify-center w-4 h-4 rounded-full text-text-subtle hover:text-accent hover:bg-surface-1"

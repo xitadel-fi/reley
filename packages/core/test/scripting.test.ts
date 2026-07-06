@@ -38,9 +38,16 @@ describe('runScript', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('passes relay API through', async () => {
+  it('passes reley API through', async () => {
+    const r = await runScript('return reley.greeting;', {
+      reley: { greeting: 'hi' },
+    });
+    expect(r.returnValue).toBe('hi');
+  });
+
+  it('keeps `relay` global as deprecated alias', async () => {
     const r = await runScript('return relay.greeting;', {
-      relay: { greeting: 'hi' },
+      reley: { greeting: 'hi' },
     });
     expect(r.returnValue).toBe('hi');
   });

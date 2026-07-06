@@ -1,4 +1,14 @@
-import { Check, Columns, History, Save, Search, Trash2, X, XCircle } from 'lucide-react';
+import {
+  Check,
+  Columns,
+  Download,
+  History,
+  Save,
+  Search,
+  Trash2,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useDialogs } from '../components/Dialogs';
@@ -31,6 +41,13 @@ interface TxRecord {
   trace: TraceNode;
   touchedAccounts: string[];
   rawTxBase64?: string;
+  autoCloned?: {
+    cloned: string[];
+    injectedAsSystem: string[];
+    clonedPrograms?: string[];
+    resolvedAlts?: string[];
+    slot: string | null;
+  };
 }
 
 type StatusFilter = 'all' | 'ok' | 'err';
@@ -518,7 +535,36 @@ function HistoryRow({
       <div className="px-3">
         <Pubkey value={tx.trace.programId} className="text-text-muted" />
       </div>
-      <div className="px-3 text-2xs text-danger truncate">{tx.errorMessage ?? ''}</div>
+      <div className="px-3 text-2xs text-danger truncate flex items-center gap-1.5 min-w-0">
+        {tx.autoCloned &&
+          (tx.autoCloned.cloned.length > 0 ||
+            (tx.autoCloned.clonedPrograms?.length ?? 0) > 0 ||
+            (tx.autoCloned.resolvedAlts?.length ?? 0) > 0 ||
+            tx.autoCloned.injectedAsSystem.length > 0) && (
+            <span
+              className="tx-autoclone-chip shrink-0"
+              title={[
+                tx.autoCloned.cloned.length
+                  ? `${tx.autoCloned.cloned.length} cloned`
+                  : '',
+                tx.autoCloned.clonedPrograms?.length
+                  ? `${tx.autoCloned.clonedPrograms.length} programs`
+                  : '',
+                tx.autoCloned.resolvedAlts?.length
+                  ? `${tx.autoCloned.resolvedAlts.length} ALTs`
+                  : '',
+                tx.autoCloned.injectedAsSystem.length
+                  ? `${tx.autoCloned.injectedAsSystem.length} system stubs`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            >
+              <Download size={9} aria-hidden /> auto-cloned
+            </span>
+          )}
+        <span className="truncate">{tx.errorMessage ?? ''}</span>
+      </div>
       <div className="px-3 text-right flex items-center justify-end gap-1">
         {tx.rawTxBase64 && (
           <Button

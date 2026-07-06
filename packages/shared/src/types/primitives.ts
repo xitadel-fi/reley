@@ -5,4 +5,4 @@ export type Uuid = string;
 
 export type NetworkId = 'mainnet-beta' | 'devnet' | 'testnet' | 'custom';
 
-export type AccountSource = 'cloned' | 'patched' | 'manual';
+export type AccountSource = 'cloned' | 'patched' | 'manual' | 'autoCloned';

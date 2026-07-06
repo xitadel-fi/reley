@@ -88,9 +88,10 @@ export class IdlStore {
     const path = this.pathFor(programId, versionId);
     if (!existsSync(path)) return null;
     const raw = await readFile(path, 'utf8');
-    const parsed = JSON.parse(raw) as { idl: Idl };
-    this.cache.set(key, parsed.idl);
-    return parsed.idl;
+    const idl = unwrapIdlFile(raw);
+    if (!idl) return null;
+    this.cache.set(key, idl);
+    return idl;
   }
 
   async list(): Promise<IdlEntry[]> {
@@ -104,15 +105,52 @@ export class IdlStore {
       const programId = sep >= 0 ? base.slice(0, sep) : base;
       const versionId = sep >= 0 ? base.slice(sep + 2) : null;
       const raw = await readFile(join(this.rootDir, f), 'utf8');
-      const parsed = JSON.parse(raw) as { __source?: string; __updatedAt?: number; idl: Idl };
+      const parsed = safeParseJson(raw);
+      const idl = unwrapIdl(parsed);
+      if (!idl) continue; // skip malformed file; never crash the list
+      const meta = parsed && typeof parsed === 'object' ? parsed : {};
       out.push({
         programId,
         versionId,
-        idlName: parsed.idl.metadata?.name ?? programId,
-        source: (parsed.__source as IdlEntry['source']) ?? 'manual',
-        updatedAt: parsed.__updatedAt ?? 0,
+        idlName: idl.metadata?.name ?? programId,
+        source: ((meta as { __source?: string }).__source as IdlEntry['source']) ?? 'manual',
+        updatedAt: (meta as { __updatedAt?: number }).__updatedAt ?? 0,
       });
     }
     return out;
   }
+}
+
+/**
+ * Tolerant JSON parser — returns null instead of throwing on malformed files.
+ * IDL files come from third parties (paste, file upload, on-chain decode),
+ * so guard the read paths instead of crashing the whole panel.
+ */
+function safeParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Accept both the wrapped format `{ __source, __updatedAt, idl: {...} }`
+ * (current) and a bare IDL object (older files / direct file imports).
+ * Returns null if neither shape applies.
+ */
+function unwrapIdl(parsed: unknown): Idl | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  if (obj.idl && typeof obj.idl === 'object') return obj.idl as Idl;
+  // Bare IDL — has at minimum one of these top-level keys.
+  if ('instructions' in obj || 'accounts' in obj || 'metadata' in obj || 'address' in obj) {
+    return parsed as Idl;
+  }
+  return null;
+}
+
+/** Convenience wrapper used by readOne. */
+function unwrapIdlFile(raw: string): Idl | null {
+  return unwrapIdl(safeParseJson(raw));
 }

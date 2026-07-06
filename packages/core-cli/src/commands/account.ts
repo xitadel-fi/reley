@@ -1,4 +1,4 @@
-import { IpcMethod } from '@relay/shared';
+import { IpcMethod } from '@reley/shared';
 import { createHost } from '../host.js';
 import { printJson } from './print.js';
 

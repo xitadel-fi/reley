@@ -36,11 +36,19 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
+          'Figtree',
           'ui-sans-serif',
           'system-ui',
           '-apple-system',
           '"Segoe UI"',
           'Roboto',
+          'sans-serif',
+        ],
+        display: [
+          'Satoshi',
+          'Figtree',
+          'ui-sans-serif',
+          'system-ui',
           'sans-serif',
         ],
         mono: [
@@ -105,6 +113,22 @@ const config: Config = {
           '0%': { opacity: '1', transform: 'scale(1)' },
           '100%': { opacity: '0', transform: 'scale(0.97)' },
         },
+        'pulse-glow': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.55' },
+          '50%': { transform: 'scale(1.08)', opacity: '1' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+        'fade-in-up': {
+          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        blink: {
+          '0%, 50%': { opacity: '1' },
+          '51%, 100%': { opacity: '0.3' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 160ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -113,6 +137,10 @@ const config: Config = {
         'slide-out-right': 'slide-out-right 200ms cubic-bezier(0.7, 0, 0.84, 0)',
         'pop-in': 'pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1)',
         'pop-out': 'pop-out 100ms cubic-bezier(0.7, 0, 0.84, 0)',
+        'pulse-glow': 'pulse-glow 5s ease-in-out infinite',
+        shimmer: 'shimmer 3s linear infinite',
+        'fade-in-up': 'fade-in-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both',
+        blink: 'blink 2s steps(1) infinite',
       },
     },
   },

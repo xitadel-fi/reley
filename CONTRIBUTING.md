@@ -1,4 +1,4 @@
-# Contributing to Relay
+# Contributing to Reley
 
 Thanks for considering a contribution. This document tells you how to get a working dev setup, the conventions the codebase follows, and what makes a PR easy to merge.
 
@@ -9,8 +9,8 @@ Be respectful. Disagreements about code are normal; disagreements about people a
 ## Quick start
 
 ```bash
-git clone git@github.com:hoangtuanictvn/replay.git relay
-cd relay
+git clone git@github.com:hoangtuanictvn/reley.git reley
+cd reley
 pnpm install
 pnpm build
 pnpm test
@@ -24,13 +24,13 @@ Requirements:
 To run the desktop app in dev:
 
 ```bash
-pnpm --filter @relay/desktop dev
+pnpm --filter @reley/desktop dev
 ```
 
 To run only one package's tests during iteration:
 
 ```bash
-pnpm --filter @relay/core test
+pnpm --filter @reley/core test
 ```
 
 ## Project layout
@@ -41,7 +41,7 @@ See **[README.md → Layout](README.md#layout)**. Briefly:
 - `packages/core` — engine (LiteSVM wrapper, patch engine, replayer, RPC server). Runs in the Electron worker thread. **No DOM, no Electron imports.**
 - `packages/core-cli` — Node CLI driver over the same dispatcher the desktop app uses.
 - `packages/desktop` — Electron main + preload + React renderer.
-- `examples/` — standalone projects (each with their own `package.json` + `pnpm-workspace.yaml`) that demonstrate talking to a Relay session via JSON-RPC. Not part of the monorepo workspace.
+- `examples/` — standalone projects (each with their own `package.json` + `pnpm-workspace.yaml`) that demonstrate talking to a Reley session via JSON-RPC. Not part of the monorepo workspace.
 
 ## Branching + PRs
 
@@ -90,11 +90,11 @@ docs: expand the JSON-RPC endpoint section
 
 - Engine changes (anything in `packages/core`) **require tests**. The bar is "the bug you fixed has a test that catches it next time."
 - Use `vitest`. Tests live next to the code or under `packages/<name>/test/`.
-- UI changes don't need unit tests, but please verify the change manually in `pnpm --filter @relay/desktop dev` and mention what you did in the PR.
+- UI changes don't need unit tests, but please verify the change manually in `pnpm --filter @reley/desktop dev` and mention what you did in the PR.
 
 ```bash
 pnpm test                 # all packages
-pnpm --filter @relay/core test
+pnpm --filter @reley/core test
 ```
 
 ## When you change…
@@ -128,7 +128,7 @@ If you find a security issue (e.g. the keypair vault leaks secrets, the JSON-RPC
 
 ## License
 
-Relay is [PolyForm Noncommercial 1.0.0](LICENSE). By contributing, you agree your contribution is licensed under the same terms. If your employer claims ownership of your code, get clearance first.
+Reley is [PolyForm Noncommercial 1.0.0](LICENSE). By contributing, you agree your contribution is licensed under the same terms. If your employer claims ownership of your code, get clearance first.
 
 ## Recognition
 

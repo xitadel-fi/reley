@@ -24,7 +24,7 @@ function shouldIgnore(name: string | null): boolean {
 
 /**
  * Watch `<projectRoot>/.relay.json` and `<projectRoot>/.relay/` for changes
- * caused outside the running app (text editor, git, another Relay window).
+ * caused outside the running app (text editor, git, another Reley window).
  * Coalesces bursts and notifies the renderer via `relay:files-changed`.
  *
  * The renderer is expected to call `project.reload` on the worker so the
@@ -55,25 +55,29 @@ export function startWatcher(windowId: number, projectRoot: string): void {
 
   const entry: Entry = { windowId, watchers, pending: null, changedPaths: new Set() };
 
-  // .relay.json (manifest)
-  const manifest = join(projectRoot, '.relay.json');
-  try {
-    const w = watch(manifest, { persistent: false }, () => onEvent(entry, '.relay.json'));
-    watchers.push(w);
-  } catch {
-    /* missing — start without */
+  // Manifest + store dir: watch both layouts (new `.reley.*` and legacy
+  // `.relay.*`) so projects on either schema get hot reload.
+  for (const manifestName of ['.reley.json', '.relay.json']) {
+    const manifestPath = join(projectRoot, manifestName);
+    try {
+      const w = watch(manifestPath, { persistent: false }, () =>
+        onEvent(entry, manifestName),
+      );
+      watchers.push(w);
+    } catch {
+      /* missing — skip */
+    }
   }
 
-  // .relay/** (recursive on macOS/Windows; Linux falls back to per-dir watch
-  // which still covers the common edits since recursive isn't supported there).
-  const relayDir = join(projectRoot, '.relay');
-  if (existsSync(relayDir)) {
+  for (const dirName of ['.reley', '.relay']) {
+    const dir = join(projectRoot, dirName);
+    if (!existsSync(dir)) continue;
     try {
       const w = watch(
-        relayDir,
+        dir,
         { persistent: false, recursive: process.platform !== 'linux' },
         (_evt, name) => {
-          const rel = name ? `.relay/${String(name)}` : '.relay';
+          const rel = name ? `${dirName}/${String(name)}` : dirName;
           onEvent(entry, rel);
         },
       );

@@ -1,12 +1,12 @@
-# Mint USDC against a Relay session
+# Mint USDC against a Reley session
 
-This example "mints" mainnet USDC into a fresh wallet by talking to a Relay-hosted LiteSVM session via its Solana JSON-RPC endpoint. No mainnet SOL needed.
+This example "mints" mainnet USDC into a fresh wallet by talking to a Reley-hosted LiteSVM session via its Solana JSON-RPC endpoint. No mainnet SOL needed.
 
-The trick: USDC's real mint authority on mainnet is controlled by Circle. In your local Relay session, that account is just a cloned byte array — patch its `mintAuthority` field to a keypair you control and the SPL Token Program happily mints into any account.
+The trick: USDC's real mint authority on mainnet is controlled by Circle. In your local Reley session, that account is just a cloned byte array — patch its `mintAuthority` field to a keypair you control and the SPL Token Program happily mints into any account.
 
-## One-time setup in Relay
+## One-time setup in Reley
 
-1. **Open Relay** → create a project with `network = mainnet-beta` and a public mainnet RPC URL.
+1. **Open Reley** → create a project with `network = mainnet-beta` and a public mainnet RPC URL.
 2. **Add programs** (sidebar → Programs → + Add):
    - `SPL Token` (built-in, instant attach)
    - `Associated Token Account` (built-in)
@@ -30,19 +30,19 @@ The trick: USDC's real mint authority on mainnet is controlled by Circle. In you
 
 ## Bootstrap keypairs
 
-If you don't want to copy secrets out of the Relay vault by hand:
+If you don't want to copy secrets out of the Reley vault by hand:
 
 ```bash
 # Generate two keypairs locally
 solana-keygen new -o payer.json --no-bip39-passphrase
 solana-keygen new -o mint-authority.json --no-bip39-passphrase
 
-# Show their pubkeys (paste these into Relay)
+# Show their pubkeys (paste these into Reley)
 solana-keygen pubkey payer.json
 solana-keygen pubkey mint-authority.json
 ```
 
-Then in Relay → Keypairs → **Import** → paste the JSON array from each file → label them. Use the mint-authority's pubkey when patching USDC.
+Then in Reley → Keypairs → **Import** → paste the JSON array from each file → label them. Use the mint-authority's pubkey when patching USDC.
 
 ## Run
 
@@ -50,10 +50,10 @@ Then in Relay → Keypairs → **Import** → paste the JSON array from each fil
 # 1. install deps
 pnpm install
 
-# 2. (optional but recommended) generate local keypairs + print pubkeys to paste into Relay
+# 2. (optional but recommended) generate local keypairs + print pubkeys to paste into Reley
 pnpm setup
 
-# 3. edit .env — fill in RELAY_SESSION_URL, RECIPIENT_PUBKEY, AMOUNT_USDC
+# 3. edit .env — fill in RELEY_SESSION_URL, RECIPIENT_PUBKEY, AMOUNT_USDC
 $EDITOR .env
 
 # 4. run
@@ -96,7 +96,7 @@ done.
    - `ComputeBudgetProgram.setComputeUnitLimit(200_000)`
    - `createAssociatedTokenAccountIdempotentInstruction` — creates the ATA if it doesn't already exist
    - `createMintToInstruction` — mints to the ATA signed by `mint-authority`
-3. Sends via `Connection.sendTransaction` to your Relay session URL.
+3. Sends via `Connection.sendTransaction` to your Reley session URL.
 4. Calls `getTokenAccountBalance` to confirm.
 
 ## Common errors
@@ -106,4 +106,4 @@ done.
 | `AccountNotFound` (mint) | Forgot step 3 — USDC mint isn't cloned into the project |
 | `0x4 InvalidMintAuthority` | Skipped step 8 — patch didn't apply, or used a different keypair |
 | `InsufficientFundsForFee` | Payer has no SOL — airdrop more |
-| `AlreadyProcessed` | Relay auto-rotates blockhash; if you still hit this, the same tx may have been resent — randomize amount or wait a tick |
+| `AlreadyProcessed` | Reley auto-rotates blockhash; if you still hit this, the same tx may have been resent — randomize amount or wait a tick |

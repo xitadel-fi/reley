@@ -4,7 +4,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ['@relay/core', '@relay/shared'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['@reley/core', '@reley/shared'] })],
     build: {
       outDir: 'out/main',
       lib: {
@@ -34,7 +34,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin({ exclude: ['@relay/core', '@relay/shared'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['@reley/core', '@reley/shared'] })],
     build: {
       outDir: 'out/preload',
       lib: {

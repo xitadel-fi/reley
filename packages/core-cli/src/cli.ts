@@ -22,8 +22,8 @@ import { txHistoryCmd, txReplayCmd, txSendCmd } from './commands/tx.js';
 const program = new Command();
 
 program
-  .name('relay')
-  .description('Relay CLI — clone Solana programs/accounts, run in LiteSVM, manage projects')
+  .name('reley')
+  .description('Reley CLI - clone Solana programs/accounts, run in SVM sandbox, manage projects')
   .version('0.0.0');
 
 // --- Raw clone / run ---

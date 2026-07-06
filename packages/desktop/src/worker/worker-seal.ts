@@ -1,5 +1,5 @@
 import type { MessagePort } from 'node:worker_threads';
-import type { SealAdapter } from '@relay/core';
+import type { SealAdapter } from '@reley/core';
 
 interface SealRequest {
   __relaySeal: true;

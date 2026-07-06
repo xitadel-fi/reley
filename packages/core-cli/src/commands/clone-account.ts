@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Cloner } from '@relay/core';
+import { Cloner } from '@reley/core';
 import { PublicKey } from '@solana/web3.js';
 
 export interface CloneAccountOpts {

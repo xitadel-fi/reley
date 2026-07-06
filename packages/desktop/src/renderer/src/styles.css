@@ -2,6 +2,71 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ───────── Self-hosted brand fonts (Figtree body + Satoshi display) ───── */
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ───────── Custom scrollbars (theme-aware, app-wide) ─────────
    Thin, subtle, accent-tinted on hover. Matches dark surface tokens so the
    chrome doesn't fight the content. Firefox uses scrollbar-color; webkit
@@ -46,59 +111,81 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --color-bg: 12 14 18;
-  --color-surface-0: 21 24 32;
-  --color-surface-1: 28 32 41;
-  --color-surface-2: 35 40 52;
-  --color-surface-3: 44 50 64;
+  /* ───── Z-index scale ───── */
+  --z-dropdown: 50;
+  --z-sticky: 100;
+  --z-dock: 200;
+  --z-overlay: 800;
+  --z-modal: 1000;
+  --z-toast: 1500;
 
-  --color-border: 42 47 58;
-  --color-border-strong: 60 66 80;
+  /* Xitadel-derived palette: cyan/teal on deep-navy.
+     Surface tiers are opaque approximations of white-alpha overlays
+     (.04/.07/.10/.14) composited on top of #091721 base — matches
+     landing page tokens while keeping Tailwind's rgb(var(--x) / a)
+     alpha-value pattern working. */
+  --color-bg: 9 23 33;
+  --color-surface-0: 16 32 43;
+  --color-surface-1: 23 40 50;
+  --color-surface-2: 29 46 56;
+  --color-surface-3: 38 54 63;
 
-  --color-text: 228 231 238;
-  --color-text-muted: 154 161 173;
-  --color-text-subtle: 110 117 130;
-  --color-text-inverted: 10 12 16;
+  --color-border: 22 40 51;
+  --color-border-strong: 44 60 71;
 
-  --color-accent: 90 141 238;
-  --color-accent-hover: 113 158 248;
-  --color-accent-subtle: 90 141 238;
+  --color-text: 212 249 255;
+  --color-text-muted: 138 178 192;
+  --color-text-subtle: 85 133 155;
+  --color-text-inverted: 3 16 24;
 
-  --color-success: 88 200 150;
-  --color-warning: 230 178 90;
-  --color-danger: 224 113 122;
-  --color-danger-subtle: 224 113 122;
+  --color-accent: 32 200 238;
+  --color-accent-hover: 114 225 238;
+  --color-accent-subtle: 8 132 181;
 
-  --color-focus: 90 141 238;
+  --color-success: 36 209 177;
+  --color-warning: 208 176 83;
+  --color-danger: 248 128 109;
+  --color-danger-subtle: 248 128 109;
+
+  --color-focus: 32 200 238;
+
+  /* Xitadel signature gradients + effects (opt-in via utility class) */
+  --grad-accent-h: linear-gradient(272deg, #026D97 21.17%, #26CDD3 100.85%);
+  --grad-accent-bar: linear-gradient(90deg, #026D97 0%, #20C8EE 50%, #02515E 100%);
+  --grad-cta: linear-gradient(135deg, #09A8D7 0%, #20C8EE 100%);
+  --sheen: radial-gradient(106.84% 106.84% at 50% 50%, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.14) 100%);
+  --cta-shadow: 0 4px 24px rgba(32, 200, 238, 0.25);
+  --cta-shadow-hover: 0 8px 32px rgba(32, 200, 238, 0.35);
+  --body-radial: radial-gradient(233.86% 81.96% at 46.25% 39.1%, #091721 37.42%, #02515E 100%);
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  --color-bg: 250 251 253;
-  --color-surface-0: 244 246 250;
-  --color-surface-1: 234 238 245;
-  --color-surface-2: 222 228 238;
-  --color-surface-3: 208 215 228;
+  --color-bg: 245 251 253;
+  --color-surface-0: 236 246 250;
+  --color-surface-1: 224 240 245;
+  --color-surface-2: 210 232 240;
+  --color-surface-3: 190 220 232;
 
-  --color-border: 210 216 226;
-  --color-border-strong: 178 186 200;
+  --color-border: 190 218 230;
+  --color-border-strong: 150 190 208;
 
-  --color-text: 24 28 36;
-  --color-text-muted: 80 88 102;
-  --color-text-subtle: 124 132 146;
-  --color-text-inverted: 250 251 253;
+  --color-text: 6 46 65;
+  --color-text-muted: 60 100 120;
+  --color-text-subtle: 108 140 158;
+  --color-text-inverted: 245 251 253;
 
-  --color-accent: 56 110 220;
-  --color-accent-hover: 38 92 200;
-  --color-accent-subtle: 56 110 220;
+  --color-accent: 8 132 181;
+  --color-accent-hover: 32 200 238;
+  --color-accent-subtle: 32 200 238;
 
-  --color-success: 30 150 100;
-  --color-warning: 200 140 40;
-  --color-danger: 210 70 80;
-  --color-danger-subtle: 210 70 80;
+  --color-success: 26 171 142;
+  --color-warning: 190 148 40;
+  --color-danger: 216 90 78;
+  --color-danger-subtle: 216 90 78;
 
-  --color-focus: 56 110 220;
+  --color-focus: 32 200 238;
 }
 
 /* Legacy hex vars (existing styles.css consumes these). Derived from tokens. */
@@ -113,8 +200,13 @@
   --success: rgb(var(--color-success));
   --danger: rgb(var(--color-danger));
 
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Figtree', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
+}
+
+/* Display font for headings, numeric, uppercase labels */
+h1, h2, h3, h4, .font-display {
+  font-family: 'Satoshi', 'Figtree', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Global focus ring for keyboard users. */
@@ -133,8 +225,31 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: var(--bg);
   color: var(--text);
+}
+
+body {
+  background-color: var(--bg);
+  background-image: var(--body-radial);
+  background-attachment: fixed;
+}
+
+/* Xitadel-style utility classes for app surfaces */
+.sheen {
+  background-image: var(--sheen);
+}
+.grad-accent-h { background-image: var(--grad-accent-h); }
+.grad-accent-bar { background-image: var(--grad-accent-bar); }
+.grad-cta { background-image: var(--grad-cta); }
+.cta-shadow { box-shadow: var(--cta-shadow); }
+.cta-shadow:hover { box-shadow: var(--cta-shadow-hover); }
+.label-tag {
+  font-family: 'Satoshi', 'Figtree', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--color-text-muted));
 }
 
 /*
@@ -165,13 +280,17 @@ button:disabled {
 }
 
 .legacy-btn:hover {
-  background: #232834;
+  background: rgb(var(--color-surface-2));
 }
 
 .legacy-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background: var(--grad-cta);
+  border-color: rgb(var(--color-accent));
+  color: #031018;
+  box-shadow: var(--cta-shadow);
+}
+.legacy-btn.primary:hover {
+  box-shadow: var(--cta-shadow-hover);
 }
 
 .legacy-btn.danger {
@@ -214,6 +333,41 @@ textarea {
 
 .shell.left-collapsed.right-collapsed {
   grid-template-columns: 56px 0 minmax(0, 1fr) 0 36px;
+}
+
+/* Narrow viewports — keep the workspace usable.
+   <1200px: shrink default sidebar floor.
+   <900px:  drop the right activity rail (toggle still in toolbar).
+   <640px:  hide the left nav rail too; sidebars become overlays. */
+@media (max-width: 1200px) {
+  .shell {
+    --right-col: 280px;
+  }
+}
+@media (max-width: 900px) {
+  .shell,
+  .shell.left-collapsed,
+  .shell.right-collapsed,
+  .shell.left-collapsed.right-collapsed {
+    grid-template-columns: 56px var(--left-col, 240px) minmax(0, 1fr) 0 0;
+  }
+  .shell aside.right-activity-rail,
+  .shell .right-activity-rail {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .shell,
+  .shell.left-collapsed,
+  .shell.right-collapsed,
+  .shell.left-collapsed.right-collapsed {
+    grid-template-columns: 0 0 minmax(0, 1fr) 0 0;
+  }
+  .shell .nav-rail,
+  .shell aside.tree-pane,
+  .shell .sidebar-resizer {
+    display: none;
+  }
 }
 
 .shell.left-collapsed aside.tree-pane,
@@ -350,19 +504,22 @@ main.workspace {
 }
 
 .nav-rail-item.active {
-  color: var(--text);
+  color: rgb(var(--color-accent));
 }
 
 .nav-rail-item.active::before {
-  background: var(--accent);
+  background: rgb(var(--color-accent));
 }
 
+/* Keep active accent visible even when the sidebar is collapsed — the
+   audit flagged the dimmed state as poor affordance (users couldn't tell
+   the icon was clickable to re-open). */
 .nav-rail-item.collapsed.active {
-  color: var(--text-dim);
+  color: rgb(var(--color-accent));
 }
 
 .nav-rail-item.collapsed.active::before {
-  background: var(--text-dim);
+  background: rgb(var(--color-accent));
 }
 
 .nav-rail-item .nav-label {
@@ -1985,11 +2142,17 @@ label {
   outline: 1px dashed rgb(var(--color-accent));
   outline-offset: -2px;
 }
-/* VSCode-style: plain pointer on hover, no grab cursor. Items remain
-   draggable — we just skip the grab visual hint to match VSCode's Explorer. */
+/* VSCode-style: plain pointer on hover (no grab cursor — matches Explorer).
+   On active press, hint at drag-ability via `grabbing` cursor + opacity.
+   Drop targets use `.drag-over` accent dashed outline (above). */
 .tree-template,
 .tree-folder {
   cursor: pointer;
+}
+.tree-template:active,
+.tree-folder:active {
+  cursor: grabbing;
+  opacity: 0.85;
 }
 
 /* Multi-select highlight — distinct from the single "active" row so users
@@ -2246,6 +2409,100 @@ label {
   font-style: italic;
   color: var(--text-subtle);
 }
+
+/* Markdown view (workflow / test-suite / case descriptions) */
+.md-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  max-width: 64ch;
+}
+.md-body > *:first-child { margin-top: 0; }
+.md-body > *:last-child { margin-bottom: 0; }
+.md-body p { margin: 0 0 8px; }
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  margin: 12px 0 6px;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.md-body h1 { font-size: 16px; }
+.md-body h2 { font-size: 14.5px; }
+.md-body h3 { font-size: 13.5px; }
+.md-body h4 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+.md-body ul,
+.md-body ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.md-body li { margin: 2px 0; }
+.md-body li > p { margin: 0; }
+.md-body code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+.md-body pre {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.md-body pre code {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+}
+.md-body blockquote {
+  margin: 6px 0;
+  padding: 4px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-subtle);
+}
+.md-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-body a:hover { color: var(--accent-strong, var(--accent)); }
+.md-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 10px 0;
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 6px 0 10px;
+  font-size: 12.5px;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.md-body th {
+  background: var(--surface-1);
+  font-weight: 600;
+}
+.md-body strong { color: var(--text); }
+.md-body em { font-style: italic; }
+.md-body.entity-detail-hero-desc { margin-top: 6px; max-width: 60ch; }
+.md-body.entity-case-desc { margin-top: 4px; }
+
 .entity-pill {
   display: inline-flex;
   align-items: center;
@@ -2731,6 +2988,382 @@ label {
   gap: 4px;
 }
 
+/* ───────── Test suite — case split editor ─────────
+   Two-pane layout: vertical case list on the left, focused CaseEditor on
+   the right. Each case row is fully clickable + shows status, step + exp
+   counts, optional description. Pane resizes via flex; sticky aside head
+   keeps the count label visible while scrolling. */
+.case-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 12px;
+  min-height: 320px;
+}
+@media (max-width: 720px) {
+  .case-split {
+    grid-template-columns: 1fr;
+  }
+}
+.case-split-aside {
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--color-surface-0));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 60vh;
+}
+.case-split-aside-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgb(var(--color-surface-2));
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+.case-split-aside-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgb(var(--color-surface-0));
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.case-split-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow: auto;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.case-split-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms;
+}
+.case-split-item:hover {
+  background: rgb(var(--color-surface-1));
+}
+.case-split-item.active {
+  background: rgb(var(--color-accent) / 0.12);
+  border-color: rgb(var(--color-accent) / 0.45);
+}
+.case-split-item-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.case-split-idx {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-subtle);
+  background: rgb(var(--color-surface-2));
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.case-split-name {
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.case-split-status {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.case-split-status.ok {
+  background: rgb(116 209 145);
+}
+.case-split-status.fail {
+  background: rgb(248 113 113);
+}
+.case-split-item-row2 {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.case-split-item-desc {
+  font-size: 10px;
+  color: var(--text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.case-split-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ───────── Status bar — setup progress chip ─────────
+   Persistent indicator shown while a fresh project still has incomplete
+   onboarding steps. Click → re-opens the quick-start tour. Hides once all
+   3 steps satisfied. */
+.status-item.setup-chip {
+  background: rgb(var(--color-accent) / 0.15);
+  color: rgb(var(--color-accent));
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 100ms;
+}
+.status-item.setup-chip:hover {
+  background: rgb(var(--color-accent) / 0.28);
+}
+
+/* ───────── Empty project guide — first-time orientation ─────────
+   Persistent quick-start panel surfaced in the workspace when a project
+   has no programs / no automations / no runs. Each step has a check icon
+   when the user has completed it (e.g. added a program) so progress is
+   visible. Dismissable per-project (localStorage). */
+.empty-project-guide {
+  margin: 12px 14px 0;
+  padding: 14px;
+  border: 1px solid rgb(var(--color-accent) / 0.3);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 0.08) 0%,
+    rgb(var(--color-surface-0)) 70%
+  );
+  border-radius: 10px;
+  position: relative;
+}
+.empty-project-guide-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.empty-project-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgb(var(--color-accent) / 0.2);
+  color: rgb(var(--color-accent));
+  flex-shrink: 0;
+}
+.empty-project-guide-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+.empty-project-guide-title > span:first-child {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.empty-project-guide-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.empty-project-guide-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.empty-project-guide-close:hover {
+  background: rgb(var(--color-surface-1));
+  color: var(--text);
+}
+.empty-project-guide-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+@media (max-width: 720px) {
+  .empty-project-guide-steps {
+    grid-template-columns: 1fr;
+  }
+}
+.empty-project-guide-step {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: rgb(var(--color-surface-1));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 100ms;
+}
+.empty-project-guide-step:hover {
+  border-color: rgb(var(--color-accent) / 0.4);
+}
+.empty-project-guide-step.done {
+  opacity: 0.7;
+  background: rgb(116 209 145 / 0.06);
+  border-color: rgb(116 209 145 / 0.3);
+}
+.empty-project-guide-step-idx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgb(var(--color-surface-2));
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.empty-project-guide-step-idx.done {
+  background: rgb(116 209 145 / 0.25);
+  color: rgb(116 209 145);
+}
+.empty-project-guide-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.empty-project-guide-step-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.empty-project-guide-step-icon {
+  display: inline-flex;
+  color: var(--text-dim);
+}
+.empty-project-guide-step.done .empty-project-guide-step-icon {
+  color: rgb(116 209 145);
+}
+.empty-project-guide-step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.empty-project-guide-step-text {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.empty-project-guide-step-cta {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 0;
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-bg));
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 100ms, transform 100ms;
+}
+.empty-project-guide-step-cta:hover {
+  background: rgb(var(--color-accent) / 0.85);
+  transform: translateY(-1px);
+}
+
+/* ───────── Settings — auto-clone toggle ───────── */
+.autoclone-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.autoclone-toggle input[type='checkbox'] {
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgb(var(--color-surface-2));
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+  flex-shrink: 0;
+}
+.autoclone-toggle input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgb(var(--color-text-subtle));
+  transition: transform 120ms, background 120ms;
+}
+.autoclone-toggle input[type='checkbox']:checked {
+  background: rgb(var(--color-accent) / 0.25);
+  border-color: rgb(var(--color-accent) / 0.5);
+}
+.autoclone-toggle input[type='checkbox']:checked::before {
+  transform: translateX(16px);
+  background: rgb(var(--color-accent));
+}
+
+/* ───────── Tx history — auto-clone chip ───────── */
+.tx-autoclone-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgb(110 178 255 / 0.15);
+  color: rgb(110 178 255);
+  border: 1px solid rgb(110 178 255 / 0.3);
+}
+.tx-autoclone-chip-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* ───────── Console dock — Logs tab ─────────
    Institutional log viewer: search-style filter input + colored status rail
    per line + monospace stream. No outer panel chrome — sits flat on dock bg. */
@@ -2781,6 +3414,31 @@ label {
   padding: 2px 8px;
   background: rgb(var(--color-surface-1));
   border-radius: 4px;
+}
+.logs-scope-group {
+  display: inline-flex;
+  background: rgb(var(--color-surface-1));
+  border-radius: 5px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.logs-scope {
+  background: transparent;
+  border: 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-subtle);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+.logs-scope:hover {
+  color: var(--text);
+}
+.logs-scope.active {
+  background: rgb(var(--color-accent) / 0.2);
+  color: rgb(var(--color-accent));
 }
 .logs-error {
   font-size: 11px;
@@ -3840,6 +4498,42 @@ label {
   background: rgb(239 68 68 / 0.15);
   color: rgb(248 113 113);
 }
+.patch-list-edit {
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgb(var(--color-surface-2) / 0.6);
+}
+.patch-list-edit:last-child {
+  border-bottom: 0;
+}
+.patch-list-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.patch-list-edit-target {
+  font-size: 10px;
+  color: var(--text-subtle);
+}
+.patch-list-edit-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.patch-list-edit-row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.patch-list-edit .patch-list-toggle,
+.patch-list-edit .patch-list-trash {
+  opacity: 1;
+  margin-top: 18px;
+}
 
 /* ───────── Automations home — recent runs grid ───────── */
 .recent-runs-grid {
@@ -4203,35 +4897,118 @@ label {
   opacity: 0.85;
 }
 
-/* ───────── Step "+ Add" grouped bar (Workflows + Tests editors) ─────────
-   Step kinds grouped by intent (Tx / Time / Reset / Version) so users can
-   scan by category instead of staring at a flat row of 7 buttons. */
-.step-add-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  padding: 8px 10px;
+/* ───────── Step picker (Workflows + Tests editors) ─────────
+   Card-style picker grouped by intent. Each kind gets a card showing icon
+   + name + brief description so the user knows what each step does without
+   tooltip-hunting. Color-coded by kind via the .kind-<x> modifier. */
+.step-picker {
+  padding: 12px 14px;
   background: rgb(var(--color-surface-0));
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
 }
-.step-add-group {
+.step-picker-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  padding: 2px 8px;
+  background: rgb(var(--color-accent) / 0.15);
+  color: rgb(var(--color-accent));
+  border-radius: 4px;
+}
+.step-picker-groups {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  gap: 12px;
 }
-.step-add-group-label {
+.step-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step-picker-group-label {
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-subtle);
 }
-.step-add-group-buttons {
+.step-picker-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.step-picker-card {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: rgb(var(--color-surface-1));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 100ms, background 100ms, transform 100ms;
+}
+.step-picker-card:hover {
+  border-color: rgb(var(--color-accent) / 0.5);
+  background: rgb(var(--color-surface-2));
+  transform: translateY(-1px);
+}
+.step-picker-card:active {
+  transform: translateY(0);
+}
+.step-picker-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: rgb(var(--color-accent) / 0.15);
+  color: rgb(var(--color-accent));
+}
+.step-picker-card.kind-airdrop .step-picker-card-icon {
+  background: rgb(245 198 87 / 0.15);
+  color: rgb(245 198 87);
+}
+.step-picker-card.kind-warpTime .step-picker-card-icon,
+.step-picker-card.kind-warpSlot .step-picker-card-icon,
+.step-picker-card.kind-expireBlockhash .step-picker-card-icon {
+  background: rgb(110 178 255 / 0.15);
+  color: rgb(110 178 255);
+}
+.step-picker-card.kind-resetSandbox .step-picker-card-icon,
+.step-picker-card.kind-resetSession .step-picker-card-icon {
+  background: rgb(248 113 113 / 0.15);
+  color: rgb(248 113 113);
+}
+.step-picker-card.kind-setProgramVersion .step-picker-card-icon {
+  background: rgb(196 139 255 / 0.15);
+  color: rgb(196 139 255);
+}
+.step-picker-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.step-picker-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.step-picker-card-desc {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.4;
 }
 
 /* ───────── HelpHint — inline glossary popover ─────────
@@ -4364,20 +5141,24 @@ label {
 .tree-empty-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 5px;
   border: 0;
-  background: rgb(var(--color-accent) / 0.18);
-  color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-bg));
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 100ms;
+  transition: background 100ms, transform 100ms;
 }
 .tree-empty-action:hover {
-  background: rgb(var(--color-accent) / 0.3);
+  background: rgb(var(--color-accent) / 0.85);
+  transform: translateY(-1px);
+}
+.tree-empty-action:active {
+  transform: translateY(0);
 }
 
 /* Brief outline pulse when a panel is opened with a scope focus (sidebar →

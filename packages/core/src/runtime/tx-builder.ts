@@ -1,4 +1,4 @@
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import {
   ComputeBudgetProgram,
   Keypair,

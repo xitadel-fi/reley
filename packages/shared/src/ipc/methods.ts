@@ -6,6 +6,8 @@ export const IpcMethod = {
   ProjectRename: 'project.rename',
   ProjectDelete: 'project.delete',
   ProjectReload: 'project.reload',
+  ProjectSetAutoClone: 'project.setAutoClone',
+  ProjectExport: 'project.export',
 
   SessionCreate: 'session.create',
   SessionList: 'session.list',
@@ -65,6 +67,7 @@ export const IpcMethod = {
   PatchCreate: 'patch.create',
   PatchList: 'patch.list',
   PatchToggle: 'patch.toggle',
+  PatchUpdate: 'patch.update',
   PatchRemove: 'patch.remove',
   PatchPromote: 'patch.promote',
   PatchDemote: 'patch.demote',

@@ -15,6 +15,7 @@ import {
 } from './persistence.js';
 import { ProjectStore } from './project-store.js';
 import { SessionStore } from './session-store.js';
+import { resolveProjectPaths } from './paths.js';
 import type { Project } from './types.js';
 
 export interface CoreContextOptions {
@@ -44,20 +45,23 @@ export class CoreContext {
 
   constructor(opts: CoreContextOptions) {
     this.projectRoot = opts.projectRoot;
-    const relayDir = join(opts.projectRoot, '.relay');
-    this.blobs = new BlobStore(join(relayDir, 'blobs'));
-    this.idls = new IdlStore(join(relayDir, 'idls'));
-    this.keypairs = new KeypairStore(join(relayDir, 'keypairs'), opts.seal);
+    // Resolved layout: new `.reley/` when present or for fresh projects,
+    // legacy `.relay/` when only that exists. Code below is layout-agnostic.
+    const paths = resolveProjectPaths(opts.projectRoot);
+    const storeDir = paths.storeDir;
+    this.blobs = new BlobStore(join(storeDir, 'blobs'));
+    this.idls = new IdlStore(join(storeDir, 'idls'));
+    this.keypairs = new KeypairStore(join(storeDir, 'keypairs'), opts.seal);
     this.projects = new ProjectStore();
     this.sessions = new SessionStore();
-    this.manifestSink = new ProjectManifestSink(opts.projectRoot);
-    this.sessionSink = new SessionFolderSink(join(relayDir, 'sessions'));
-    this.templateSink = new TxTemplateFolderSink(join(relayDir, 'tx-templates'));
-    this.workflowSink = new WorkflowFolderSink(join(relayDir, 'workflows'));
-    this.testSuiteSink = new TestSuiteFolderSink(join(relayDir, 'test-suites'));
-    this.scriptSink = new ScriptFolderSink(join(relayDir, 'scripts'));
-    this.patchSink = new PatchFolderSink(join(relayDir, 'patches'));
-    this.programSink = new ProgramFolderSink(join(relayDir, 'programs'));
+    this.manifestSink = new ProjectManifestSink(opts.projectRoot, paths.manifest);
+    this.sessionSink = new SessionFolderSink(join(storeDir, 'sessions'));
+    this.templateSink = new TxTemplateFolderSink(join(storeDir, 'tx-templates'));
+    this.workflowSink = new WorkflowFolderSink(join(storeDir, 'workflows'));
+    this.testSuiteSink = new TestSuiteFolderSink(join(storeDir, 'test-suites'));
+    this.scriptSink = new ScriptFolderSink(join(storeDir, 'scripts'));
+    this.patchSink = new PatchFolderSink(join(storeDir, 'patches'));
+    this.programSink = new ProgramFolderSink(join(storeDir, 'programs'));
   }
 
   async load(): Promise<void> {
@@ -88,6 +92,7 @@ export class CoreContext {
         workflows,
         testSuites,
         folders: meta.folders ?? [],
+        autoCloneEnabled: meta.autoCloneEnabled ?? true,
         createdAt: meta.createdAt,
         lastOpenedAt: meta.lastOpenedAt,
         pinned: meta.pinned,
@@ -150,6 +155,7 @@ export class CoreContext {
         sessionIds: first.sessionIds,
         keypairRefs: first.keypairRefs,
         folders: first.folders ?? [],
+        autoCloneEnabled: first.autoCloneEnabled ?? true,
         createdAt: first.createdAt,
         lastOpenedAt: first.lastOpenedAt,
         pinned: first.pinned,

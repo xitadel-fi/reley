@@ -240,6 +240,13 @@ export interface Project {
    * root of their section. Schema-backwards-compat: undefined → no folders.
    */
   folders?: TreeFolder[];
+  /**
+   * When true, missing accounts referenced by an incoming tx are auto-cloned
+   * from the project RPC before the tx executes. Defaults to true if
+   * undefined. Disable for hermetic sandboxes that should fail explicitly on
+   * unseen accounts.
+   */
+  autoCloneEnabled?: boolean;
   createdAt: number;
   lastOpenedAt: number;
   pinned: boolean;

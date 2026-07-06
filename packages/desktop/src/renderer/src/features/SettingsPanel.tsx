@@ -44,6 +44,7 @@ interface ProjectMeta {
   description?: string;
   network: string;
   rpcEndpointId: string;
+  autoCloneEnabled?: boolean;
 }
 
 export function SettingsPanel(): JSX.Element {
@@ -64,7 +65,7 @@ export function SettingsPanel(): JSX.Element {
         <h2 className="m-0 text-md font-semibold">Settings</h2>
         <div className="text-xs text-text-muted mt-0.5">
           App-level options persist globally. Project-level options live in this
-          project's <code className="font-mono">.relay.json</code>.
+          project's <code className="font-mono">.reley.json</code>.
         </div>
       </header>
 
@@ -231,6 +232,7 @@ function ProjectGeneralGroup(): JSX.Element {
   const [err, setErr] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [autoClone, setAutoClone] = useState<boolean>(true);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -247,6 +249,7 @@ function ProjectGeneralGroup(): JSX.Element {
       setProject(full);
       setName(full.name);
       setDescription(full.description ?? '');
+      setAutoClone(full.autoCloneEnabled !== false);
     } catch (e) {
       setErr(String(e));
     }
@@ -276,7 +279,7 @@ function ProjectGeneralGroup(): JSX.Element {
   };
 
   return (
-    <GroupShell title="General" description="Project metadata stored in .relay.json.">
+    <GroupShell title="General" description="Project metadata stored in .reley.json.">
       {err && <ErrorState title="Failed to load project" message={err} />}
       {!project ? (
         <Empty size="sm" title="No project loaded" />
@@ -290,6 +293,32 @@ function ProjectGeneralGroup(): JSX.Element {
           </SettingRow>
           <SettingRow label="Project ID" description="Stable UUID — read-only.">
             <Input value={project.id} readOnly className="font-mono" />
+          </SettingRow>
+          <SettingRow
+            label="Auto-clone missing accounts"
+            description="On tx submit, fetch any referenced accounts + programs not yet in the sandbox from the project's RPC. Disable for hermetic sandboxes that should fail explicitly."
+          >
+            <label className="autoclone-toggle">
+              <input
+                type="checkbox"
+                checked={autoClone}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setAutoClone(next);
+                  try {
+                    await api.call('project.setAutoClone', {
+                      id: project.id,
+                      enabled: next,
+                    });
+                    toast.success(`Auto-clone ${next ? 'enabled' : 'disabled'}`);
+                  } catch (err) {
+                    setAutoClone(!next);
+                    toast.error(String(err));
+                  }
+                }}
+              />
+              <span>{autoClone ? 'Enabled' : 'Disabled'}</span>
+            </label>
           </SettingRow>
           <div className="pt-2">
             <Button

@@ -237,6 +237,9 @@ function LogsTab({ activeSessionId }: { activeSessionId: string | null }): JSX.E
   const [records, setRecords] = useState<TxRecord[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Default to "all" so user sees everything; flip to "latest" to focus on
+  // just the most recent tx (the one they likely just submitted).
+  const [scope, setScope] = useState<'all' | 'latest'>('all');
 
   useEffect(() => {
     if (!activeSessionId) {
@@ -251,14 +254,17 @@ function LogsTab({ activeSessionId }: { activeSessionId: string | null }): JSX.E
 
   const lines = useMemo<Array<{ ts: number; ok: boolean; pid: string; line: string }>>(() => {
     const out: Array<{ ts: number; ok: boolean; pid: string; line: string }> = [];
-    for (const r of records.slice().reverse()) {
+    const source = scope === 'latest' && records.length > 0
+      ? [records[records.length - 1]!]
+      : records.slice().reverse();
+    for (const r of source) {
       for (const l of r.trace.logs) {
         if (query.trim() && !l.raw.toLowerCase().includes(query.toLowerCase())) continue;
         out.push({ ts: r.submittedAt, ok: r.success, pid: r.trace.programId, line: l.raw });
       }
     }
     return out;
-  }, [records, query]);
+  }, [records, query, scope]);
 
   if (!activeSessionId) {
     return (
@@ -281,6 +287,27 @@ function LogsTab({ activeSessionId }: { activeSessionId: string | null }): JSX.E
             placeholder="filter log lines…"
             className="logs-search-input"
           />
+        </div>
+        <div className="logs-scope-group" role="tablist" aria-label="Log scope">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'all'}
+            className={`logs-scope${scope === 'all' ? ' active' : ''}`}
+            onClick={() => setScope('all')}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'latest'}
+            className={`logs-scope${scope === 'latest' ? ' active' : ''}`}
+            onClick={() => setScope('latest')}
+            title="Show logs from the most recent tx only"
+          >
+            Latest
+          </button>
         </div>
         <span className="logs-count">
           {lines.length} line{lines.length === 1 ? '' : 's'}

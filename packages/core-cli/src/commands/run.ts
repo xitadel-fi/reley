@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import { SvmInstance } from '@relay/core';
+import { SvmInstance } from '@reley/core';
 import {
   ComputeBudgetProgram,
   Keypair,

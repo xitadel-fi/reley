@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
-import type { Project } from '../types';
+import type { Project, SessionMeta } from '../types';
 import {
   Badge,
   Button,
@@ -38,18 +38,27 @@ type PatchKind = 'setField' | 'setLamports' | 'setOwner' | 'rawSplice';
 export function PatchAccountForm({
   projectId,
   sessionId,
+  sessions,
   address,
   project,
+  initialScope,
   onDone,
 }: {
   projectId: string;
   sessionId: string | null;
-  address: string;
+  sessions?: SessionMeta[];
+  /** Empty / undefined = render an address picker step first. */
+  address?: string;
   project?: Project | null;
+  initialScope?: 'project' | 'session';
   onDone: () => void;
 }): JSX.Element {
   const suggestions = useAddressSuggestions(project ?? null);
-  const [scope, setScope] = useState<'project' | 'session'>(sessionId ? 'session' : 'project');
+  const [target, setTarget] = useState<string>(address ?? '');
+  const [scope, setScope] = useState<'project' | 'session'>(
+    initialScope ?? (sessionId ? 'session' : 'project'),
+  );
+  const [targetSessionId, setTargetSessionId] = useState<string | null>(sessionId);
   const [decoded, setDecoded] = useState<DecodedResult | null>(null);
   const [decodeErr, setDecodeErr] = useState<string | null>(null);
   const [kind, setKind] = useState<PatchKind>('setField');
@@ -63,11 +72,22 @@ export function PatchAccountForm({
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    setDecoded(null);
+    setDecodeErr(null);
+    if (!target || target.length < 32) return;
+    let cancelled = false;
     void api
-      .call<DecodedResult>('account.decode', { projectId, address })
-      .then(setDecoded)
-      .catch((e) => setDecodeErr(String(e)));
-  }, [projectId, address]);
+      .call<DecodedResult>('account.decode', { projectId, address: target })
+      .then((d) => {
+        if (!cancelled) setDecoded(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setDecodeErr(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, target]);
 
   const submit = async (): Promise<void> => {
     setBusy(true);
@@ -90,10 +110,12 @@ export function PatchAccountForm({
         }
         op = { kind: 'rawSplice', offset: Number(offset), bytes };
       }
+      const scopeId = scope === 'project' ? projectId : targetSessionId;
+      if (!scopeId) throw new Error('Pick a sandbox for the sandbox scope.');
       await api.call('patch.create', {
         scope,
-        scopeId: scope === 'project' ? projectId : sessionId,
-        target: address,
+        scopeId,
+        target,
         op,
         enabled: true,
       });
@@ -104,28 +126,70 @@ export function PatchAccountForm({
     }
   };
 
+  const preset = !!address;
+  const targetReady = target.length >= 32;
+  const scopeReady = scope === 'project' || !!targetSessionId;
+
   return (
     <div className="flex flex-col gap-4 min-w-[560px] max-w-[720px]">
       <div>
-        <h3 className="m-0 text-md font-semibold">Patch account</h3>
-        <div className="mt-1">
-          <Pubkey value={address} truncate={6} className="text-text-muted text-xs" />
-        </div>
+        <h3 className="m-0 text-md font-semibold">
+          {preset ? 'Patch account' : 'New patch'}
+        </h3>
+        {preset ? (
+          <div className="mt-1">
+            <Pubkey value={target} truncate={6} className="text-text-muted text-xs" />
+          </div>
+        ) : (
+          <div className="mt-1 text-text-muted text-xs">
+            Pick an account to patch — type a base58 pubkey or pick from suggestions.
+          </div>
+        )}
       </div>
 
       {err && <ErrorState title="Failed to save patch" message={err} />}
+
+      {!preset && (
+        <Field label="Target account" help="Any account loaded into the project or sandbox.">
+          <AddressInput value={target} onChange={setTarget} suggestions={suggestions} autoFocus />
+        </Field>
+      )}
 
       <Field label="Scope" help="Project patches apply to every sandbox; sandbox patches to one.">
         <Tabs value={scope} onValueChange={(v) => setScope(v as 'project' | 'session')}>
           <TabsList>
             <TabsTrigger value="project">Project</TabsTrigger>
-            <TabsTrigger value="session" disabled={!sessionId}>
+            <TabsTrigger value="session" disabled={!sessions?.length && !sessionId}>
               Sandbox
             </TabsTrigger>
           </TabsList>
         </Tabs>
       </Field>
 
+      {scope === 'session' && (
+        <Field label="Target sandbox" help="Which sandbox the patch lives in.">
+          {sessions && sessions.length > 0 ? (
+            <Select
+              value={targetSessionId ?? ''}
+              onChange={(e) => setTargetSessionId(e.target.value || null)}
+            >
+              <option value="">— pick a sandbox —</option>
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.isDefault ? ' · default' : ''}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="text-xs text-text-muted">
+              No sandboxes in this project yet.
+            </div>
+          )}
+        </Field>
+      )}
+
+      {targetReady && (
       <div>
         <div className="text-xs text-text-muted mb-1.5">Decoded</div>
         {decodeErr && <ErrorState message={decodeErr} />}
@@ -162,7 +226,9 @@ export function PatchAccountForm({
           )
         )}
       </div>
+      )}
 
+      {targetReady && (
       <Field label="Patch type">
         <Select value={kind} onChange={(e) => setKind(e.target.value as PatchKind)}>
           <option value="setField">setField (IDL-aware)</option>
@@ -171,8 +237,9 @@ export function PatchAccountForm({
           <option value="rawSplice">rawSplice (hex)</option>
         </Select>
       </Field>
+      )}
 
-      {kind === 'setField' && (
+      {targetReady && kind === 'setField' && (
         <>
           {decoded?.editableFields && decoded.editableFields.length > 0 && (
             <Field label={`Editable fields (${decoded.decoder})`}>
@@ -211,7 +278,7 @@ export function PatchAccountForm({
           </Field>
         </>
       )}
-      {kind === 'setLamports' && (
+      {targetReady && kind === 'setLamports' && (
         <Field label="Lamports">
           <Input
             value={lamports}
@@ -221,12 +288,12 @@ export function PatchAccountForm({
           />
         </Field>
       )}
-      {kind === 'setOwner' && (
+      {targetReady && kind === 'setOwner' && (
         <Field label="New owner (base58)">
           <AddressInput value={owner} onChange={setOwner} suggestions={suggestions} />
         </Field>
       )}
-      {kind === 'rawSplice' && (
+      {targetReady && kind === 'rawSplice' && (
         <>
           <Field label="Offset">
             <Input
@@ -249,7 +316,11 @@ export function PatchAccountForm({
         <Button variant="ghost" onClick={() => onDone()}>
           Cancel
         </Button>
-        <Button variant="primary" disabled={busy} onClick={submit}>
+        <Button
+          variant="primary"
+          disabled={busy || !targetReady || !scopeReady}
+          onClick={submit}
+        >
           {busy ? (
             <>
               <Spinner size={12} /> Saving…

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, FileCode2, Inspect, MessageSquare, X } from 'lucide-react';
+import { Box, FileCode2, Inspect, MessageSquare, Sparkles, X } from 'lucide-react';
 
 const STORAGE_KEY = 'relay:onboarding-tour-done';
 
@@ -30,24 +30,44 @@ const STEPS: Step[] = [
     title: 'Bottom dock = history & logs',
     body: 'Recent tx submissions + per-tx logs collapse into a VSCode-style dock at the bottom. Toggle with ⌘J or the dock icon in the top toolbar.',
   },
+  {
+    icon: <Sparkles size={28} aria-hidden />,
+    title: 'Stuck? Try Quick Start.',
+    body: 'The "Quick start" card at the top of the workspace walks you through 3 steps: add a program → create a workflow → run it. The "Setup N/3" chip in the bottom status bar tracks progress. Re-open this tour anytime via the ? button in the toolbar or ⌘K → Show quick-start tour.',
+  },
 ];
 
 /**
- * One-shot first-launch overlay tour. Renders nothing once the user has
- * completed or skipped it (persisted via localStorage). Designed for newbie
- * orientation — never replays automatically. Re-openable from the command
- * palette ("Open glossary / help") if we wire it up later.
+ * Overlay tour. Auto-opens once on first launch (persisted dismiss).
+ * `forceOpen` re-opens it on demand from the toolbar Help button or the
+ * command palette without clearing the dismiss flag.
  */
-export function OnboardingTour(): JSX.Element | null {
+export function OnboardingTour({
+  forceOpen,
+  onClose,
+}: {
+  forceOpen?: boolean;
+  onClose?: () => void;
+} = {}): JSX.Element | null {
   const [visible, setVisible] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem(STORAGE_KEY) !== '1';
   });
   const [idx, setIdx] = useState(0);
 
+  // When parent force-opens (eg. user clicks Help button), reveal even if
+  // user already dismissed. Reset to step 0 each time.
+  useEffect(() => {
+    if (forceOpen) {
+      setVisible(true);
+      setIdx(0);
+    }
+  }, [forceOpen]);
+
   const dismiss = (): void => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, '1');
     setVisible(false);
+    onClose?.();
   };
 
   useEffect(() => {

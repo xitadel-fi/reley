@@ -27,6 +27,22 @@ export interface TxRecord {
    * Optional — older records persisted before this field shipped won't have it.
    */
   rawTxBase64?: string;
+  /**
+   * Set when the runtime auto-cloned missing accounts pre-flight. Records
+   * which pubkeys were fetched from chain and which were defaulted to a
+   * zero-lamport System account (created-by-tx PDAs). Surfaces in the Tx
+   * History detail view as an "auto-cloned" chip.
+   */
+  autoCloned?: {
+    cloned: Base58String[];
+    injectedAsSystem: Base58String[];
+    /** Programs newly registered to the project (with ELF deployed to SVM). */
+    clonedPrograms?: Base58String[];
+    /** Address Lookup Tables that were fetched + injected. */
+    resolvedAlts?: Base58String[];
+    /** Slot pinned at the time of fetch (as decimal string). */
+    slot: string | null;
+  };
 }
 
 export interface SessionState {

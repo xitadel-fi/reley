@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bootstraps a payer + mint-authority keypair locally so you can paste their
-# pubkeys into Relay (vault + USDC patch). Idempotent — won't clobber existing keys.
+# pubkeys into Reley (vault + USDC patch). Idempotent — won't clobber existing keys.
 
 set -euo pipefail
 
@@ -36,7 +36,7 @@ b58() {
 }
 
 echo ""
-echo "── Paste these pubkeys into Relay ────────────────────────────"
+echo "── Paste these pubkeys into Reley ────────────────────────────"
 echo "payer:           $(solana-keygen pubkey payer.json)"
 echo "mint-authority:  $(solana-keygen pubkey mint-authority.json)"
 echo ""
@@ -44,7 +44,7 @@ echo "── Base58 secrets (paste into .env) ───────────�
 echo "payer secret:           $(b58 payer.json)"
 echo "mint-authority secret:  $(b58 mint-authority.json)"
 echo ""
-echo "1. Open Relay → Keypairs → Import each JSON file (paste the array)"
+echo "1. Open Reley → Keypairs → Import each JSON file (paste the array)"
 echo "2. Sidebar → SPL Token → + Add account: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 echo "3. Right-click USDC account → Patch fields…"
 echo "     scope:        session (or project)"

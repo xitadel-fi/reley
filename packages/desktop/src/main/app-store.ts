@@ -94,7 +94,11 @@ export class AppStore {
 
   recentProjects(): RecentProject[] {
     return this.state.recentProjects
-      .filter((r) => existsSync(join(r.path, '.relay.json')))
+      .filter(
+        (r) =>
+          existsSync(join(r.path, '.reley.json')) ||
+          existsSync(join(r.path, '.relay.json')),
+      )
       .slice(0, MAX_RECENTS);
   }
 

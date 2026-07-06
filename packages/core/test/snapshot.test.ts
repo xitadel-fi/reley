@@ -1,4 +1,4 @@
-import type { SessionState } from '@relay/shared';
+import type { SessionState } from '@reley/shared';
 import { describe, expect, it } from 'vitest';
 import {
   applySnapshot,

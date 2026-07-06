@@ -1,9 +1,10 @@
-import { type AccountSnapshot, ErrorCode, RelayError } from '@relay/shared';
+import { type AccountSnapshot, ErrorCode, RelayError } from '@reley/shared';
 import { type AccountInfo, PublicKey } from '@solana/web3.js';
 import type { CoreContext } from '../store/context.js';
 import { applyPatchesAsync } from '../store/patch-engine.js';
 import { SvmInstance, type SvmTxResult } from '../svm/svm.js';
 import { isBuiltinProgram } from '../util/builtins.js';
+import { autoCloneMissingAccounts, type AutoCloneReport } from './auto-clone.js';
 
 interface RuntimeEntry {
   svm: SvmInstance;
@@ -118,6 +119,14 @@ export class SessionRuntime {
       }
     }
 
+    // Inject sandbox-scope accounts (auto-cloned + any sandbox-only state)
+    // so they survive sandbox reopens without another RPC round-trip.
+    for (const [addr, snap] of Object.entries(session.accounts)) {
+      if (entry.knownAccounts.has(addr)) continue;
+      entry.svm.setAccount(new PublicKey(addr), this.toAccountInfo(snap));
+      entry.knownAccounts.add(addr);
+    }
+
     // Seed the SVM clock with real wallclock when starting from a fresh
     // sandbox. LiteSVM defaults `Clock::unix_timestamp = 0`, so any cloned
     // account whose `expiry` / `start` / `lockup_until` field holds a real
@@ -161,6 +170,50 @@ export class SessionRuntime {
     const { VersionedTransaction } = await import('@solana/web3.js');
     const tx = VersionedTransaction.deserialize(txBytes);
     return svm.simulateTransaction(tx);
+  }
+
+  /**
+   * Pre-flight: fetch any tx-referenced accounts not in the sandbox state +
+   * inject them. Caller passes the project's archive RPC URL. Cloned accounts
+   * are persisted to session.accounts so subsequent sandbox reloads have
+   * them without another round-trip.
+   *
+   * Returns the report (cloned / system-injected / rpc error). Callers
+   * decide whether to surface this to the tx record / UI.
+   */
+  async autoCloneForTx(
+    sessionId: string,
+    txBytes: Uint8Array,
+    rpcUrl: string,
+  ): Promise<AutoCloneReport> {
+    const svm = await this.ensureHydrated(sessionId);
+    const session = this.ctx.sessions.get(sessionId);
+    const project = this.ctx.projects.get(session.projectId);
+    const projectAccountSet = new Set<string>();
+    for (const prog of Object.values(project.programs)) {
+      for (const acc of prog.accounts ?? []) projectAccountSet.add(acc.address);
+    }
+    return autoCloneMissingAccounts({
+      txBytes,
+      svm,
+      sessionAccounts: session.accounts,
+      rpcUrl,
+      projectAccountSet,
+      programRegistrar: {
+        saveElf: (elf) => this.ctx.blobs.put(elf),
+        hasProgram: (programId) => Boolean(project.programs[programId]),
+        register: async ({ programId, elfBlobHash, upgradeAuthority, slot }) => {
+          this.ctx.projects.addProgram({
+            projectId: project.id,
+            programId,
+            label: programId,
+            elfBlobHash,
+            source: { kind: 'cloned', slot },
+            upgradeAuthority,
+          });
+        },
+      },
+    });
   }
 
   /** Funds the given pubkey on this session's SVM with lamports. */

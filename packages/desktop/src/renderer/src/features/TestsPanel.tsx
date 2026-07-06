@@ -32,10 +32,12 @@ import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
 import { FirstRunGuide } from '../components/FirstRunGuide';
+import { MarkdownView } from '../components/MarkdownView';
 import { recordRun } from './AutomationsHome';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import { IxInspectButton } from './IxInspectModal';
+import { IxEditButton } from './IxEditModal';
 import type { Project } from '../types';
 import {
   Badge,
@@ -187,11 +189,22 @@ const STEP_KINDS: StepKind[] = [
 /** Step kinds grouped by intent. Used by the "+ Add step" menu so newbies
  *  can scan by category. Mirrors WorkflowsPanel.STEP_GROUPS. */
 const STEP_GROUPS: Array<{ label: string; kinds: StepKind[] }> = [
-  { label: 'Tx ops', kinds: ['tx', 'airdrop'] },
-  { label: 'Time ops', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
-  { label: 'Reset ops', kinds: ['resetSandbox'] },
-  { label: 'Version ops', kinds: ['setProgramVersion'] },
+  { label: 'Transactions', kinds: ['tx', 'airdrop'] },
+  { label: 'Time control', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
+  { label: 'Reset', kinds: ['resetSandbox'] },
+  { label: 'Program version', kinds: ['setProgramVersion'] },
 ];
+
+const STEP_DESCRIPTIONS: Record<StepKind, string> = {
+  tx: 'Send a transaction from a tx template (re-uses ixs + signers).',
+  airdrop: 'Fund a pubkey with SOL inside the sandbox.',
+  warpTime: 'Advance the sandbox clock by N seconds (slot + unix_timestamp).',
+  warpSlot: 'Jump the sandbox to an absolute slot number.',
+  expireBlockhash: 'Force-expire current blockhash so pre-signed tx fail with "blockhash not found".',
+  resetSession: 'Wipe sandbox state to project baseline.',
+  resetSandbox: 'Wipe sandbox state to project baseline (mutations + history cleared).',
+  setProgramVersion: 'Pin a program to a specific version for the rest of the run.',
+};
 
 const NUMERIC_OPS: NumericOp[] = ['eq', 'neq', 'ge', 'le', 'gt', 'lt'];
 
@@ -649,7 +662,10 @@ function SuiteDetail({
               <span className="entity-pill entity-pill-suite">Test Suite</span>
             </div>
             {suite.description ? (
-              <p className="entity-detail-hero-desc">{suite.description}</p>
+              <MarkdownView
+                source={suite.description}
+                className="entity-detail-hero-desc"
+              />
             ) : (
               <p className="entity-detail-hero-desc entity-detail-hero-desc-muted">
                 No description.
@@ -773,7 +789,10 @@ function SuiteDetail({
                     ) : null}
                   </div>
                   {c.description && (
-                    <p className="entity-case-desc">{c.description}</p>
+                    <MarkdownView
+                      source={c.description}
+                      className="entity-case-desc"
+                    />
                   )}
                   <div className="entity-case-meta">
                     <span>
@@ -984,12 +1003,10 @@ function SuiteCases({
   lastResult: RunResult | null;
 }): JSX.Element {
   const [activeId, setActiveId] = useState<string>(cases[0]?.id ?? '');
-  // If active case got deleted, fall back to first remaining.
   useEffect(() => {
     if (!cases.some((c) => c.id === activeId) && cases[0]) setActiveId(cases[0].id);
   }, [cases, activeId]);
 
-  // Per-case pass/fail badge from the last run (if any).
   const caseStatus = (id: string): 'pass' | 'fail' | null => {
     const r = lastResult?.cases.find((c) => c.caseId === id);
     if (!r) return null;
@@ -999,50 +1016,72 @@ function SuiteCases({
   const activeIdx = cases.findIndex((c) => c.id === activeId);
   const active = cases[activeIdx >= 0 ? activeIdx : 0];
 
+  // Two-pane layout — vertical list on left (one row per case), focused
+  // editor on the right. Beats the horizontal chip strip when cases have
+  // long names + lets each case be edited / renamed / deleted independently
+  // without losing the others' context.
   return (
-    <div className="flex flex-col gap-3">
-      {/* Horizontal tab strip — one chip per case, click to switch. */}
-      <div className="flex flex-wrap gap-1 border-b border-border pb-2 -mx-1 px-1">
-        {cases.map((tc, idx) => {
-          const isActive = tc.id === activeId;
-          const status = caseStatus(tc.id);
-          return (
-            <button
-              key={tc.id}
-              type="button"
-              onClick={() => setActiveId(tc.id)}
-              className={[
-                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-2xs transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
-                isActive
-                  ? 'bg-accent/15 text-accent border border-accent/40'
-                  : 'bg-surface-0 text-text-muted border border-border hover:text-text hover:bg-surface-1',
-              ].join(' ')}
-              title={tc.description || tc.name}
-            >
-              <span className="font-mono text-text-subtle">#{idx + 1}</span>
-              <span className="truncate max-w-[160px]">{tc.name}</span>
-              {status === 'pass' && (
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-label="pass" />
-              )}
-              {status === 'fail' && (
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger" aria-label="fail" />
-              )}
-            </button>
-          );
-        })}
+    <div className="case-split">
+      <aside className="case-split-aside">
+        <div className="case-split-aside-head">
+          <span>Cases</span>
+          <span className="case-split-aside-count">{cases.length}</span>
+        </div>
+        <ol className="case-split-list">
+          {cases.map((tc, idx) => {
+            const isActive = tc.id === activeId;
+            const status = caseStatus(tc.id);
+            const expCount = tc.steps.reduce(
+              (n, s) =>
+                n + (s.txExpectations?.length ?? 0) + (s.accountExpectations?.length ?? 0),
+              0,
+            );
+            return (
+              <li key={tc.id}>
+                <button
+                  type="button"
+                  className={`case-split-item${isActive ? ' active' : ''}`}
+                  onClick={() => setActiveId(tc.id)}
+                  title={tc.description || tc.name}
+                >
+                  <div className="case-split-item-row1">
+                    <span className="case-split-idx">#{idx + 1}</span>
+                    <span className="case-split-name">{tc.name || '(unnamed)'}</span>
+                    {status === 'pass' && (
+                      <span className="case-split-status ok" aria-label="pass" />
+                    )}
+                    {status === 'fail' && (
+                      <span className="case-split-status fail" aria-label="fail" />
+                    )}
+                  </div>
+                  <div className="case-split-item-row2">
+                    {tc.steps.length} step{tc.steps.length === 1 ? '' : 's'} · {expCount}{' '}
+                    expectation{expCount === 1 ? '' : 's'}
+                  </div>
+                  {tc.description && (
+                    <div className="case-split-item-desc">{tc.description}</div>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </aside>
+      <div className="case-split-main">
+        {active ? (
+          <CaseEditor
+            key={active.id}
+            index={activeIdx}
+            testCase={active}
+            project={project}
+            suggestions={suggestions}
+            onPatch={(patch) => onPatch(active.id, patch)}
+            onRemove={() => onRemove(active.id)}
+          />
+        ) : (
+          <div className="text-2xs text-text-subtle italic p-4">No case selected.</div>
+        )}
       </div>
-      {active && (
-        <CaseEditor
-          key={active.id}
-          index={activeIdx}
-          testCase={active}
-          project={project}
-          suggestions={suggestions}
-          onPatch={(patch) => onPatch(active.id, patch)}
-          onRemove={() => onRemove(active.id)}
-        />
-      )}
     </div>
   );
 }
@@ -1106,7 +1145,7 @@ function CaseEditor({
   }>;
 
   return (
-    <li className="rounded-md border border-border bg-surface-0 overflow-hidden">
+    <div className="rounded-md border border-border bg-surface-0 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 bg-surface-1/60 border-b border-border">
         <IconButton
           icon={open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -1161,19 +1200,39 @@ function CaseEditor({
           <div className="mt-3 text-2xs text-text-subtle uppercase tracking-wider">
             Steps · runs top to bottom, never halts on fail
           </div>
-          <div className="step-add-bar mt-2">
-            {STEP_GROUPS.map((g) => (
-              <div key={g.label} className="step-add-group">
-                <div className="step-add-group-label">{g.label}</div>
-                <div className="step-add-group-buttons">
-                  {g.kinds.map((k) => (
-                    <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
-                      {stepIcon(k, 11)} {prettyKind(k)}
-                    </Button>
-                  ))}
+          <div className="step-picker mt-2">
+            <div className="step-picker-head">
+              <Plus size={11} aria-hidden />
+              <span>Add step</span>
+            </div>
+            <div className="step-picker-groups">
+              {STEP_GROUPS.map((g) => (
+                <div key={g.label} className="step-picker-group">
+                  <div className="step-picker-group-label">{g.label}</div>
+                  <div className="step-picker-cards">
+                    {g.kinds.map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`step-picker-card kind-${k}`}
+                        onClick={() => addStep(k)}
+                        title={STEP_DESCRIPTIONS[k]}
+                      >
+                        <span className="step-picker-card-icon" aria-hidden>
+                          {stepIcon(k, 14)}
+                        </span>
+                        <span className="step-picker-card-body">
+                          <span className="step-picker-card-name">{prettyKind(k)}</span>
+                          <span className="step-picker-card-desc">
+                            {STEP_DESCRIPTIONS[k]}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
           {testCase.steps.length === 0 ? (
@@ -1257,7 +1316,7 @@ function CaseEditor({
           )}
         </div>
       )}
-    </li>
+    </div>
   );
 }
 
@@ -1569,6 +1628,14 @@ function TxStepBody({
                   <span className="font-mono">{ix.programLabel}</span>{' '}
                   <span className="text-text-subtle">·</span> {ix.summary}
                 </span>
+                <IxEditButton
+                  ix={ix}
+                  project={project}
+                  onSave={(updated) => {
+                    const nextIxs = step.ixs.map((x, j) => (j === i ? updated : x));
+                    onPatch({ ixs: nextIxs, templateId: null } as Partial<TestStep>);
+                  }}
+                />
                 <IxInspectButton ix={ix} project={project} />
               </li>
             ))}

@@ -1,5 +1,5 @@
 # Marker file — makes pnpm treat this folder as a standalone project,
-# isolated from the parent Relay monorepo.
+# isolated from the parent Reley monorepo.
 
 allowBuilds:
   bigint-buffer: set this to true or false

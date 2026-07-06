@@ -11,7 +11,7 @@ import type {
   ScriptEntry,
   SessionMeta,
   SessionState,
-} from '@relay/shared';
+} from '@reley/shared';
 
 export interface StoreSnapshot {
   formatVersion: number;

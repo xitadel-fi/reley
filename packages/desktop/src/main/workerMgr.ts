@@ -1,7 +1,7 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { WorkerClient } from '@relay/core';
+import { WorkerClient } from '@reley/core';
 import { app, safeStorage } from 'electron';
 
 interface WorkerSealRequest {

@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { CoreContext, Dispatcher, buildHandlers } from '@relay/core';
+import { CoreContext, Dispatcher, buildHandlers } from '@reley/core';
 
 interface WorkerInit {
   projectRoot: string;

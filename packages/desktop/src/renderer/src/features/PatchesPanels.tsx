@@ -1,5 +1,6 @@
 import {
   Box,
+  Check,
   Coins,
   Eye,
   EyeOff,
@@ -7,14 +8,17 @@ import {
   Layers,
   Layers3,
   PenLine,
+  Pencil,
+  Plus,
   Trash2,
   User,
+  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { Button, Empty } from '../ui';
 import { useToast } from '../components/Toast';
 import type { Project } from '../types';
+import { Button, Empty, Input } from '../ui';
 
 export interface PatchRecord {
   id: string;
@@ -46,8 +50,7 @@ function opLabel(op: PatchRecord['op']): { label: string; detail: string; full: 
     const abs = n < 0n ? -n : n;
     if (abs >= 1_000_000n) {
       const sol = Number(n) / 1e9;
-      const fmt =
-        Math.abs(sol) >= 1 ? sol.toFixed(3) : sol.toFixed(6).replace(/\.?0+$/, '');
+      const fmt = Math.abs(sol) >= 1 ? sol.toFixed(3) : sol.toFixed(6).replace(/\.?0+$/, '');
       return {
         label: 'Set balance',
         detail: `${fmt} SOL`,
@@ -87,6 +90,160 @@ function opIcon(kind: PatchRecord['op']['kind']): JSX.Element {
   }
 }
 
+function bytesToHex(b: unknown): string {
+  if (!(b instanceof Uint8Array)) return '';
+  let out = '';
+  for (const v of b) out += v.toString(16).padStart(2, '0');
+  return out;
+}
+
+function hexToBytes(s: string): Uint8Array {
+  const hex = (s.startsWith('0x') ? s.slice(2) : s).replace(/\s+/g, '');
+  if (hex.length % 2 !== 0) throw new Error('hex must have even length');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = Number.parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+/** Inline editor for a patch op — kind stays fixed, fields editable. */
+function PatchRowEditor({
+  patch,
+  scope,
+  scopeId,
+  onSaved,
+  onCancel,
+}: {
+  patch: PatchRecord;
+  scope: Scope;
+  scopeId: string;
+  onSaved: () => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [fieldPath, setFieldPath] = useState(
+    patch.op.kind === 'setField' ? patch.op.fieldPath : '',
+  );
+  const [valueJson, setValueJson] = useState(
+    patch.op.kind === 'setField' ? patch.op.valueJson : '',
+  );
+  const [lamports, setLamports] = useState(
+    patch.op.kind === 'setLamports' ? String(patch.op.lamports) : '',
+  );
+  const [owner, setOwner] = useState(patch.op.kind === 'setOwner' ? patch.op.owner : '');
+  const [offset, setOffset] = useState(
+    patch.op.kind === 'rawSplice' ? String(patch.op.offset) : '0',
+  );
+  const [hexBytes, setHexBytes] = useState(
+    patch.op.kind === 'rawSplice' ? bytesToHex(patch.op.bytes) : '',
+  );
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      let op: unknown;
+      if (patch.op.kind === 'setField') {
+        op = { kind: 'setField', fieldPath, valueJson };
+      } else if (patch.op.kind === 'setLamports') {
+        op = { kind: 'setLamports', lamports: BigInt(lamports || '0') };
+      } else if (patch.op.kind === 'setOwner') {
+        op = { kind: 'setOwner', owner };
+      } else {
+        op = { kind: 'rawSplice', offset: Number(offset), bytes: hexToBytes(hexBytes) };
+      }
+      await api.call('patch.update', { scope, scopeId, patchId: patch.id, op });
+      onSaved();
+    } catch (e) {
+      toast.error(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="patch-list-edit">
+      <span className={`patch-list-icon op-${patch.op.kind}`} aria-hidden>
+        {opIcon(patch.op.kind)}
+      </span>
+      <div className="patch-list-edit-fields">
+        <div className="patch-list-edit-target font-mono" title={patch.target}>
+          {patch.target.slice(0, 4)}…{patch.target.slice(-4)}
+        </div>
+        {patch.op.kind === 'setField' && (
+          <div className="patch-list-edit-row">
+            <Input
+              value={fieldPath}
+              onChange={(e) => setFieldPath(e.target.value)}
+              placeholder="field path (dotted)"
+              className="font-mono"
+            />
+            <Input
+              value={valueJson}
+              onChange={(e) => setValueJson(e.target.value)}
+              placeholder="value (JSON)"
+              className="font-mono"
+            />
+          </div>
+        )}
+        {patch.op.kind === 'setLamports' && (
+          <Input
+            value={lamports}
+            onChange={(e) => setLamports(e.target.value)}
+            placeholder="lamports"
+            className="font-mono"
+          />
+        )}
+        {patch.op.kind === 'setOwner' && (
+          <Input
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            placeholder="new owner (base58)"
+            className="font-mono"
+          />
+        )}
+        {patch.op.kind === 'rawSplice' && (
+          <div className="patch-list-edit-row">
+            <Input
+              value={offset}
+              onChange={(e) => setOffset(e.target.value)}
+              placeholder="offset"
+              className="font-mono"
+              style={{ maxWidth: 100 }}
+            />
+            <Input
+              value={hexBytes}
+              onChange={(e) => setHexBytes(e.target.value)}
+              placeholder="bytes (hex)"
+              className="font-mono"
+            />
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        className="patch-list-toggle"
+        onClick={() => void save()}
+        disabled={busy}
+        title="Save"
+        aria-label="Save patch"
+      >
+        <Check size={12} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="patch-list-trash"
+        onClick={onCancel}
+        disabled={busy}
+        title="Cancel"
+        aria-label="Cancel edit"
+      >
+        <X size={12} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 /** Shared patch row — institutional list-item style with toggle + delete. */
 function PatchRow({
   patch,
@@ -100,6 +257,7 @@ function PatchRow({
   onChange: () => void;
 }): JSX.Element {
   const toast = useToast();
+  const [editing, setEditing] = useState(false);
   const summary = opLabel(patch.op);
 
   const toggle = async (): Promise<void> => {
@@ -124,6 +282,21 @@ function PatchRow({
     }
   };
 
+  if (editing) {
+    return (
+      <PatchRowEditor
+        patch={patch}
+        scope={scope}
+        scopeId={scopeId}
+        onSaved={() => {
+          setEditing(false);
+          onChange();
+        }}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
   return (
     <div className={`patch-list-row${patch.enabled ? '' : ' patch-list-row-off'}`}>
       <span className={`patch-list-icon op-${patch.op.kind}`} aria-hidden>
@@ -140,6 +313,15 @@ function PatchRow({
           {summary.detail}
         </div>
       </div>
+      <button
+        type="button"
+        className="patch-list-toggle"
+        onClick={() => setEditing(true)}
+        title="Edit"
+        aria-label="Edit patch"
+      >
+        <Pencil size={12} aria-hidden />
+      </button>
       <button
         type="button"
         className="patch-list-toggle"
@@ -177,9 +359,11 @@ function groupByTarget(list: PatchRecord[]): Array<{ target: string; rows: Patch
 export function ProjectPatchesPanel({
   project,
   onChange,
+  onNewPatch,
 }: {
   project: Project;
   onChange: () => void;
+  onNewPatch?: (scope: 'project' | 'session') => void;
 }): JSX.Element {
   const list = (project.patches ?? []) as PatchRecord[];
   const groups = useMemo(() => groupByTarget(list), [list]);
@@ -202,6 +386,13 @@ export function ProjectPatchesPanel({
             </p>
           </div>
         </div>
+        {onNewPatch && (
+          <div className="entity-detail-hero-actions">
+            <Button variant="primary" size="sm" onClick={() => onNewPatch('project')}>
+              <Plus size={12} aria-hidden /> New patch
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="entity-detail-kpis">
@@ -252,7 +443,7 @@ export function ProjectPatchesPanel({
           <Empty
             size="sm"
             title="No project patches yet"
-            description='Right-click an account in the sidebar → "Patch fields…" to create one.'
+            description='Click "New patch" above, or right-click an account in the sidebar → "Patch fields…".'
           />
         ) : (
           <div className="patch-group-list">
@@ -286,8 +477,8 @@ export function ProjectPatchesPanel({
 
       <div className="entity-detail-footchips">
         <span className="entity-footchip">
-          <Info size={11} aria-hidden /> Right-click an account in the sidebar → "Patch
-          fields…" to add a new one
+          <Info size={11} aria-hidden /> New patch above · or right-click an account in the sidebar
+          → "Patch fields…"
         </span>
       </div>
     </div>
@@ -299,10 +490,12 @@ export function SandboxPatchesPanel({
   project,
   activeSessionId,
   onChange,
+  onNewPatch,
 }: {
   project: Project;
   activeSessionId: string | null;
   onChange: () => void;
+  onNewPatch?: (scope: 'project' | 'session') => void;
 }): JSX.Element {
   const toast = useToast();
   const [list, setList] = useState<PatchRecord[]>([]);
@@ -363,11 +556,24 @@ export function SandboxPatchesPanel({
               <span className="entity-pill entity-pill-suite">Sandbox scope</span>
             </div>
             <p className="entity-detail-hero-desc">
-              Live only in the active sandbox. Cleared on sandbox reset; never re-apply to
-              other sandboxes.
+              Live only in the active sandbox. Cleared on sandbox reset; never re-apply to other
+              sandboxes.
             </p>
           </div>
         </div>
+        {onNewPatch && (
+          <div className="entity-detail-hero-actions">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => onNewPatch('session')}
+              disabled={!activeSessionId}
+              title={activeSessionId ? 'New sandbox patch' : 'Pick a sandbox first'}
+            >
+              <Plus size={12} aria-hidden /> New patch
+            </Button>
+          </div>
+        )}
       </div>
 
       {activeSessionId && (
@@ -430,7 +636,7 @@ export function SandboxPatchesPanel({
           <Empty
             size="sm"
             title="No sandbox patches"
-            description="Right-click an account → 'Patch fields…' (scope: sandbox) to add one."
+            description='Click "New patch" above, or right-click an account → "Patch fields…" (scope: sandbox).'
           />
         ) : (
           <div className="patch-group-list">
@@ -464,8 +670,8 @@ export function SandboxPatchesPanel({
 
       <div className="entity-detail-footchips">
         <span className="entity-footchip">
-          <Info size={11} aria-hidden /> Cleared on sandbox reset · never re-apply to
-          other sandboxes
+          <Info size={11} aria-hidden /> Cleared on sandbox reset · never re-apply to other
+          sandboxes
         </span>
       </div>
     </div>

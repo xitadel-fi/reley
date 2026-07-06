@@ -1,4 +1,4 @@
-import type { AccountSnapshot, Patch } from '@relay/shared';
+import type { AccountSnapshot, Patch } from '@reley/shared';
 import { describe, expect, it } from 'vitest';
 import { applyPatch, applyPatches } from '../src/store/patch-engine.js';
 

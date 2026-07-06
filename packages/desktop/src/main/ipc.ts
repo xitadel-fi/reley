@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs';
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join, normalize, relative, resolve, sep } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, app, dialog, ipcMain } from 'electron';
 import { type RpcEndpoint, getAppStore } from './app-store';
 import { getProjectPathForWindow } from './project-windows';
 import {
@@ -9,6 +9,7 @@ import {
   createProjectFolder,
   focusOrOpenProjectWindow,
   getProjectInfoForWindow as getProjectInfoForWindowImpl,
+  importProjectFromZip,
   showWelcomeWindow,
 } from './project-windows';
 import { getClientForWindow } from './workerMgr';
@@ -57,8 +58,13 @@ async function handleAppMethod(
     case 'app.recentProjectMeta': {
       try {
         const { readFile } = await import('node:fs/promises');
+        const { existsSync } = await import('node:fs');
         const { join } = await import('node:path');
-        const raw = await readFile(join(String(p.path), '.relay.json'), 'utf8');
+        const root = String(p.path);
+        const candidates = [join(root, '.reley.json'), join(root, '.relay.json')];
+        const manifestPath = candidates.find((c) => existsSync(c));
+        if (!manifestPath) return null;
+        const raw = await readFile(manifestPath, 'utf8');
         const parsed = JSON.parse(raw) as { network?: string; pinned?: boolean };
         return { network: parsed.network ?? null, pinned: !!parsed.pinned };
       } catch {
@@ -70,7 +76,7 @@ async function handleAppMethod(
       const win = BrowserWindow.fromWebContents(sender);
       const r = await dialog.showOpenDialog(win!, {
         properties: ['openDirectory'],
-        title: 'Open Relay Project',
+        title: 'Open Reley Project',
       });
       const path = r.filePaths[0];
       if (r.canceled || !path) return { canceled: true };
@@ -82,7 +88,7 @@ async function handleAppMethod(
       const win = BrowserWindow.fromWebContents(sender);
       const r = await dialog.showOpenDialog(win!, {
         properties: ['openDirectory', 'createDirectory'],
-        title: 'Choose folder for new Relay project',
+        title: 'Choose folder for new Reley project',
       });
       const path = r.filePaths[0];
       if (r.canceled || !path) return { canceled: true };
@@ -105,14 +111,14 @@ async function handleAppMethod(
     }
 
     case 'app.newDemoProject': {
-      // One-click demo: create `~/Documents/Relay/demo-<ts>` with auto-bootstrap
+      // One-click demo: create `~/Documents/Reley/demo-<ts>` with auto-bootstrap
       // (default-payer, default sandbox, 6 SPL builtins pre-attached). User
       // lands in a working state without any prior setup.
       const home = app.getPath('documents');
-      const folder = join(home, 'Relay', `demo-${Date.now()}`);
+      const folder = join(home, 'Reley', `demo-${Date.now()}`);
       await mkdir(folder, { recursive: true });
       await createProjectFolder(folder, {
-        name: 'Relay Demo',
+        name: 'Reley Demo',
         network: 'mainnet-beta',
         rpcEndpointId: 'mainnet-public',
         description: 'Auto-generated demo — explore Sandbox, Tx Builder, Tests, Workflows.',
@@ -177,6 +183,46 @@ async function handleAppMethod(
       });
       if (r.canceled || r.filePaths.length === 0) return { canceled: true };
       return { canceled: false, path: r.filePaths[0] };
+    }
+
+    case 'app.importProjectZip': {
+      const win = BrowserWindow.fromWebContents(sender);
+      const pick = await dialog.showOpenDialog(win!, {
+        title: 'Import Reley project (.zip)',
+        properties: ['openFile'],
+        filters: [{ name: 'Reley project zip', extensions: ['zip'] }],
+      });
+      if (pick.canceled || pick.filePaths.length === 0) return { canceled: true };
+      const zipPath = pick.filePaths[0]!;
+
+      const defaultParent = join(app.getPath('documents'), 'Reley');
+      const dest = await dialog.showOpenDialog(win!, {
+        title: 'Choose folder to extract project into',
+        defaultPath: defaultParent,
+        properties: ['openDirectory', 'createDirectory'],
+        buttonLabel: 'Extract here',
+      });
+      if (dest.canceled || dest.filePaths.length === 0) return { canceled: true };
+      const destParent = dest.filePaths[0]!;
+
+      const result = await importProjectFromZip(zipPath, destParent);
+      await focusOrOpenProjectWindow(result.projectPath);
+      return { canceled: false, ...result };
+    }
+
+    case 'app.dialog.saveZip': {
+      const win = BrowserWindow.fromWebContents(sender);
+      const defaultPath = typeof p.defaultPath === 'string' ? p.defaultPath : 'reley-project.zip';
+      const r = await dialog.showSaveDialog(win!, {
+        title: typeof p.title === 'string' ? p.title : 'Save Reley project',
+        defaultPath,
+        filters: [{ name: 'Reley project zip', extensions: ['zip'] }],
+      });
+      if (r.canceled || !r.filePath) return { canceled: true };
+      const base64 = String(p.contentBase64 ?? '');
+      const bytes = Buffer.from(base64, 'base64');
+      await writeFile(r.filePath, bytes);
+      return { canceled: false, path: r.filePath, bytes: bytes.length };
     }
 
     default:
@@ -256,34 +302,40 @@ async function walkDir(abs: string, root: string): Promise<FileNode[]> {
   return out;
 }
 
-async function handleFilesTree(sender: Electron.WebContents): Promise<{ root: string; nodes: FileNode[] }> {
+async function handleFilesTree(
+  sender: Electron.WebContents,
+): Promise<{ root: string; nodes: FileNode[] }> {
   const root = getRootForSender(sender);
-  // Show .relay.json + .relay/ subtree only — those are the editable bits.
+  // Show manifest + store dir for whichever layout the project is on (new
+  // `.reley.*` preferred, legacy `.relay.*` for projects created pre-rename).
   const nodes: FileNode[] = [];
-  const manifestAbs = join(root, '.relay.json');
-  try {
-    const s = await stat(manifestAbs);
-    nodes.push({
-      name: '.relay.json',
-      path: '.relay.json',
-      kind: 'file',
-      size: s.size,
-      mtime: s.mtimeMs,
-    });
-  } catch {
-    /* missing */
+  for (const manifestName of ['.reley.json', '.relay.json']) {
+    try {
+      const s = await stat(join(root, manifestName));
+      nodes.push({
+        name: manifestName,
+        path: manifestName,
+        kind: 'file',
+        size: s.size,
+        mtime: s.mtimeMs,
+      });
+    } catch {
+      /* missing */
+    }
   }
-  const relayDirAbs = join(root, '.relay');
-  try {
-    await stat(relayDirAbs);
-    nodes.push({
-      name: '.relay',
-      path: '.relay',
-      kind: 'dir',
-      children: await walkDir(relayDirAbs, root),
-    });
-  } catch {
-    /* missing */
+  for (const dirName of ['.reley', '.relay']) {
+    const dirAbs = join(root, dirName);
+    try {
+      await stat(dirAbs);
+      nodes.push({
+        name: dirName,
+        path: dirName,
+        kind: 'dir',
+        children: await walkDir(dirAbs, root),
+      });
+    } catch {
+      /* missing */
+    }
   }
   return { root, nodes };
 }

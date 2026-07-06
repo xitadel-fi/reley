@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import {
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,

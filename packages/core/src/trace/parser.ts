@@ -1,4 +1,4 @@
-import type { LogLine, TraceNode } from '@relay/shared';
+import type { LogLine, TraceNode } from '@reley/shared';
 
 /**
  * Solana log lines we care about:

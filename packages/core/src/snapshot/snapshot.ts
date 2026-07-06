@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCode, RelayError, type SessionState, type SnapshotRef } from '@relay/shared';
+import { ErrorCode, RelayError, type SessionState, type SnapshotRef } from '@reley/shared';
 import { sha256Hex } from '../util/hash.js';
 
 export const SNAPSHOT_FORMAT_VERSION = 2;

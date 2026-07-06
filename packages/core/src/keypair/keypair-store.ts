@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ErrorCode, RelayError, type Uuid } from '@relay/shared';
+import { ErrorCode, RelayError, type Uuid } from '@reley/shared';
 import { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 

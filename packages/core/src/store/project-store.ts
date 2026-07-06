@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCode, RelayError } from '@relay/shared';
-import type { ProgramSource, ProgramVersion } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
+import type { ProgramSource, ProgramVersion } from '@reley/shared';
 import type {
   AddAccountInput,
   AddProgramInput,

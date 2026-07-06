@@ -92,7 +92,7 @@ export function PatchesSidebarSection({
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
-                onOpenHelp('relay-patch');
+                onOpenHelp('reley-patch');
               }}
               title="What is a patch?"
               className="inline-flex items-center justify-center w-4 h-4 rounded-full text-text-subtle hover:text-accent hover:bg-surface-1"

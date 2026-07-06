@@ -13,8 +13,8 @@ import { setWorkerScriptPath, shutdownAll } from './workerMgr';
 // Brand identity — must run before app.whenReady() so the dock label,
 // menu-bar app name, and About panel pick it up in dev preview too.
 // (Packaged builds get this from Info.plist / electron-builder's productName.)
-app.setName('Relay');
-if (process.platform === 'win32') app.setAppUserModelId('io.relay.desktop');
+app.setName('Reley');
+if (process.platform === 'win32') app.setAppUserModelId('io.reley.desktop');
 
 const brandIconPath = join(
   __dirname,
@@ -27,7 +27,7 @@ const brandIconPath = join(
 );
 
 app.setAboutPanelOptions({
-  applicationName: 'Relay',
+  applicationName: 'Reley',
   applicationVersion: app.getVersion(),
   copyright: 'Copyright © 2026 hoangtuanictvn',
   iconPath: brandIconPath,
@@ -80,6 +80,23 @@ function buildMenu(): Menu {
       },
       { type: 'separator' },
       {
+        label: 'Export Project as .zip…',
+        accelerator: 'CmdOrCtrl+Shift+E',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+          win?.webContents.send('relay:menu', 'export-project');
+        },
+      },
+      {
+        label: 'Import Project from .zip…',
+        accelerator: 'CmdOrCtrl+Shift+I',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+          win?.webContents.send('relay:menu', 'import-project');
+        },
+      },
+      { type: 'separator' },
+      {
         label: 'Close Window',
         accelerator: 'CmdOrCtrl+W',
         role: 'close',
@@ -117,7 +134,35 @@ function buildMenu(): Menu {
   }
   template.push(fileMenu);
   template.push({ role: 'editMenu' });
-  template.push({ role: 'viewMenu' });
+  template.push({
+    label: 'View',
+    submenu: [
+      {
+        label: 'Show Welcome Intro Again',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+          win?.webContents.send('relay:menu', 'show-welcome-intro');
+        },
+      },
+      {
+        label: 'Show Quick-Start Tour',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+          win?.webContents.send('relay:menu', 'show-tour');
+        },
+      },
+      { type: 'separator' },
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ],
+  });
   template.push({ role: 'windowMenu' });
   if (!isMac) {
     template.push({ label: 'Preferences', submenu: [settingsItem] });

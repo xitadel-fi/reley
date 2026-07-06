@@ -1,10 +1,10 @@
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import { type AccountInfo, type Commitment, Connection, PublicKey } from '@solana/web3.js';
 import {
   type LoaderKind,
-  PROGRAM_DATA_HEADER_LEN,
   deriveProgramDataAddress,
   detectLoader,
+  parseUpgradeableProgramData,
 } from '../util/loader.js';
 import { BlobCache } from './cache.js';
 import type { ClonedAccount, ClonedProgram, ClonerOptions } from './types.js';
@@ -152,21 +152,6 @@ export class Cloner {
   }
 }
 
-function parseUpgradeableProgramData(data: Buffer): {
-  elf: Uint8Array;
-  upgradeAuthority: PublicKey | null;
-} {
-  if (data.length < PROGRAM_DATA_HEADER_LEN) {
-    throw new RelayError(ErrorCode.PROGRAM_LOAD_FAILURE, 'ProgramData buffer too short');
-  }
-  const hasAuthority = data.readUInt8(12) === 1;
-  let upgradeAuthority: PublicKey | null = null;
-  if (hasAuthority) {
-    upgradeAuthority = new PublicKey(data.subarray(13, 13 + 32));
-  }
-  const elf = new Uint8Array(data.subarray(PROGRAM_DATA_HEADER_LEN));
-  return { elf, upgradeAuthority };
-}
 
 function serializeAccountInfo(info: AccountInfo<Buffer>): Uint8Array {
   const ownerBytes = info.owner.toBuffer();

@@ -30,10 +30,12 @@ import { api } from '../api';
 import { AddressInput } from '../components/AddressInput';
 import { useDialogs } from '../components/Dialogs';
 import { FirstRunGuide } from '../components/FirstRunGuide';
+import { MarkdownView } from '../components/MarkdownView';
 import { recordRun } from './AutomationsHome';
 import { useToast } from '../components/Toast';
 import { useAddressSuggestions } from '../components/useAddressSuggestions';
 import { IxInspectButton } from './IxInspectModal';
+import { IxEditButton } from './IxEditModal';
 import type { Project } from '../types';
 import {
   Badge,
@@ -248,11 +250,23 @@ const STEP_KINDS: StepKind[] = [
 /** Step kinds grouped by intent. Used by the "+ Add step" menu so newbies
  *  can scan by category instead of staring at a flat row of 7 buttons. */
 const STEP_GROUPS: Array<{ label: string; kinds: StepKind[] }> = [
-  { label: 'Tx ops', kinds: ['tx', 'airdrop'] },
-  { label: 'Time ops', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
-  { label: 'Reset ops', kinds: ['resetSandbox'] },
-  { label: 'Version ops', kinds: ['setProgramVersion'] },
+  { label: 'Transactions', kinds: ['tx', 'airdrop'] },
+  { label: 'Time control', kinds: ['warpTime', 'warpSlot', 'expireBlockhash'] },
+  { label: 'Reset', kinds: ['resetSandbox'] },
+  { label: 'Program version', kinds: ['setProgramVersion'] },
 ];
+
+/** One-line "what this step does" copy for the step picker tooltips. */
+const STEP_DESCRIPTIONS: Record<StepKind, string> = {
+  tx: 'Send a transaction from a tx template (re-uses ixs + signers).',
+  airdrop: 'Fund a pubkey with SOL inside the sandbox.',
+  warpTime: 'Advance the sandbox clock by N seconds (slot + unix_timestamp).',
+  warpSlot: 'Jump the sandbox to an absolute slot number.',
+  expireBlockhash: 'Force-expire current blockhash so pre-signed tx fail with "blockhash not found".',
+  resetSession: 'Wipe sandbox state to project baseline.',
+  resetSandbox: 'Wipe sandbox state to project baseline (mutations + history cleared).',
+  setProgramVersion: 'Pin a program to a specific version for the rest of the run.',
+};
 
 export function WorkflowsPanel({
   project,
@@ -619,7 +633,10 @@ function WorkflowDetail({
               <span className="entity-pill entity-pill-workflow">Workflow</span>
             </div>
             {workflow.description ? (
-              <p className="entity-detail-hero-desc">{workflow.description}</p>
+              <MarkdownView
+                source={workflow.description}
+                className="entity-detail-hero-desc"
+              />
             ) : (
               <p className="entity-detail-hero-desc entity-detail-hero-desc-muted">
                 No description.
@@ -924,19 +941,39 @@ function WorkflowEditor({
           </h3>
           <span className="entity-detail-section-meta">runs top-to-bottom, halts on fail</span>
         </div>
-        <div className="step-add-bar">
-          {STEP_GROUPS.map((g) => (
-            <div key={g.label} className="step-add-group">
-              <div className="step-add-group-label">{g.label}</div>
-              <div className="step-add-group-buttons">
-                {g.kinds.map((k) => (
-                  <Button key={k} variant="ghost" size="xs" onClick={() => addStep(k)}>
-                    {stepIcon(k, 11)} {prettyKind(k)}
-                  </Button>
-                ))}
+        <div className="step-picker">
+          <div className="step-picker-head">
+            <Plus size={11} aria-hidden />
+            <span>Add step</span>
+          </div>
+          <div className="step-picker-groups">
+            {STEP_GROUPS.map((g) => (
+              <div key={g.label} className="step-picker-group">
+                <div className="step-picker-group-label">{g.label}</div>
+                <div className="step-picker-cards">
+                  {g.kinds.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={`step-picker-card kind-${k}`}
+                      onClick={() => addStep(k)}
+                      title={STEP_DESCRIPTIONS[k]}
+                    >
+                      <span className="step-picker-card-icon" aria-hidden>
+                        {stepIcon(k, 14)}
+                      </span>
+                      <span className="step-picker-card-body">
+                        <span className="step-picker-card-name">{prettyKind(k)}</span>
+                        <span className="step-picker-card-desc">
+                          {STEP_DESCRIPTIONS[k]}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {workflow.steps.length === 0 ? (
@@ -1349,6 +1386,14 @@ function TxStepForm({
                   <span className="font-mono">{ix.programLabel}</span>{' '}
                   <span className="text-text-subtle">·</span> {ix.summary}
                 </span>
+                <IxEditButton
+                  ix={ix}
+                  project={project}
+                  onSave={(updated) => {
+                    const nextIxs = step.ixs.map((x, j) => (j === i ? updated : x));
+                    onPatch({ ixs: nextIxs, templateId: null } as Partial<Step>);
+                  }}
+                />
                 <IxInspectButton ix={ix} project={project} />
               </li>
             ))}

@@ -1,20 +1,39 @@
 {
-  "name": "@relay/core-cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@reley/core-cli",
+  "version": "1.0.0-beta.1",
+  "description": "Reley CLI — clone Solana programs, run them in LiteSVM, replay mainnet txs, build + sign + simulate tx templates.",
+  "license": "MIT",
   "type": "module",
   "bin": {
+    "reley": "./dist/cli.js",
     "relay": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/relay-protocol/reley.git",
+    "directory": "packages/core-cli"
+  },
+  "homepage": "https://github.com/relay-protocol/reley#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/cli.ts",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@relay/core": "workspace:*",
-    "@relay/shared": "workspace:*",
+    "@reley/core": "workspace:*",
+    "@reley/shared": "workspace:*",
     "@solana/web3.js": "^1.95.0",
     "commander": "^12.1.0"
   },

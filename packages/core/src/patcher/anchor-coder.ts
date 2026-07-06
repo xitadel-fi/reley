@@ -1,5 +1,5 @@
 import { BorshAccountsCoder, type Idl } from '@coral-xyz/anchor';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import { PublicKey } from '@solana/web3.js';
 import BN from 'bn.js';
 
@@ -43,7 +43,19 @@ export class AnchorCoder {
 
   /** Re-encode a struct back to bytes (full account body including 8-byte discriminator). */
   async encodeAsync(accountName: string, value: unknown): Promise<Buffer> {
-    return this.coder.encode(accountName, value);
+    // why: Anchor 0.30 BorshAccountsCoder.encode allocates a fixed 1000-byte buffer
+    // (with a "TODO: use a tighter buffer" comment), which overflows for any account
+    // larger than ~1 KB (e.g. Kamino's 8 KB Reserve). Re-encode against a 64 KB scratch
+    // buffer using the coder's internal layout map.
+    const layouts = (this.coder as unknown as { accountLayouts: Map<string, { encode(v: unknown, b: Buffer): number }> }).accountLayouts;
+    const layout = layouts.get(accountName);
+    if (!layout) throw new RelayError(ErrorCode.IDL_DECODE_FAILURE, `unknown account: ${accountName}`);
+    const scratch = Buffer.alloc(65536);
+    const len = layout.encode(value, scratch);
+    const body = scratch.slice(0, len);
+    const acc = this.idl.accounts?.find((a) => a.name === accountName);
+    const disc = Buffer.from(acc?.discriminator ?? []);
+    return Buffer.concat([disc, body]);
   }
 }
 

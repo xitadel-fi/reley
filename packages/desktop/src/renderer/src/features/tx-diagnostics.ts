@@ -135,7 +135,7 @@ function checkUnsatisfiedSigners(ixs: DiagIx[], ctx: DiagContext): Issue[] {
         severity: 'error',
         title: `No keypair for required signer ${short(pubkey)}`,
         detail:
-          `Instruction #${i + 1} marks ${short(pubkey)} as a signer, but Relay has no ` +
+          `Instruction #${i + 1} marks ${short(pubkey)} as a signer, but Reley has no ` +
           `secret key for it. Either add the keypair (Keypairs panel) or change this ` +
           `account to non-signer.`,
         ixIndex: i,

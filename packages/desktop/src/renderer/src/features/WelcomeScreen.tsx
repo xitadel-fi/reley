@@ -100,6 +100,50 @@ export function WelcomeScreen(): JSX.Element {
     void reload();
   }, []);
 
+  // Welcome intro cards ("What is Reley?" + "Try the demo") auto-hide after
+  // 5 launches so returning users get straight to recents. User can also
+  // manually dismiss earlier via the × button.
+  const [introVisible, setIntroVisible] = useState<boolean>(true);
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    if (localStorage.getItem('relay:welcome-intro-dismissed') === '1') {
+      setIntroVisible(false);
+      return;
+    }
+    const opens = Number(localStorage.getItem('relay:welcome-open-count') ?? '0') + 1;
+    localStorage.setItem('relay:welcome-open-count', String(opens));
+    if (opens > 5) {
+      setIntroVisible(false);
+      localStorage.setItem('relay:welcome-intro-dismissed', '1');
+    }
+  }, []);
+
+  // System-menu hook — View → "Show Welcome Intro Again" clears the flag +
+  // forces the intro back on for the current Welcome window. Also handles
+  // "Import Project from .zip" so users can import without an open project.
+  useEffect(() => {
+    return api.onMenu?.((cmd) => {
+      if (cmd === 'show-welcome-intro') restoreIntro();
+      if (cmd === 'import-project') {
+        void api.call('app.importProjectZip', {}).catch((e: unknown) => {
+          console.error('import failed', e);
+        });
+      }
+    });
+  }, []);
+  const dismissIntro = (): void => {
+    setIntroVisible(false);
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('relay:welcome-intro-dismissed', '1');
+  };
+  const restoreIntro = (): void => {
+    setIntroVisible(true);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('relay:welcome-intro-dismissed');
+      localStorage.setItem('relay:welcome-open-count', '0');
+    }
+  };
+
   const filteredRpcs = useMemo(
     () => rpcEndpoints.filter((r) => r.network === newNetwork),
     [rpcEndpoints, newNetwork],
@@ -202,46 +246,69 @@ export function WelcomeScreen(): JSX.Element {
             </div>
           </section>
 
-          {/* Try-the-demo card. One click creates a fully-bootstrapped
-              project in ~/Documents/Relay and opens it. Newbie path
-              shortcut — skips the New Project form entirely. */}
-          <section className="mb-10">
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await api.call('app.newDemoProject');
-                } catch (e) {
-                  toast.error(String(e));
-                }
-              }}
-              className={[
-                'w-full text-left rounded-lg border border-accent/30 bg-accent/5 p-4',
-                'hover:border-accent hover:bg-accent/10 transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
-              ].join(' ')}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className="inline-flex items-center justify-center w-10 h-10 rounded bg-accent/20 text-accent shrink-0"
-                  aria-hidden
-                >
-                  <FlaskConical size={20} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-text">
-                    Try the demo — zero setup
-                  </div>
-                  <div className="text-2xs text-text-muted mt-0.5 leading-relaxed">
-                    Spins up a fresh project with SPL Token, Token-2022, ATA, System programs
-                    pre-attached, a funded default-payer keypair, and a sandbox ready for
-                    txs. Lands in <code className="font-mono">~/Documents/Relay/</code>.
-                  </div>
+          {introVisible && (
+            <section className="mb-10 relative">
+              <button
+                type="button"
+                onClick={dismissIntro}
+                className="absolute top-2 right-2 z-10 inline-flex items-center justify-center w-6 h-6 rounded text-text-subtle hover:text-text hover:bg-surface-1"
+                title="Hide intro (auto-hides after 5 launches anyway)"
+                aria-label="Hide intro"
+              >
+                ×
+              </button>
+              <div className="rounded-lg border border-border bg-surface-0 p-4 mb-3">
+                <div className="text-sm font-medium text-text mb-1">
+                  What is Reley?
                 </div>
-                <span className="text-2xs text-accent shrink-0 font-mono">→</span>
+                <div className="text-xs text-text-muted leading-relaxed">
+                  A local Solana sandbox + tx builder. Clone programs and accounts
+                  from chain, mutate state via patches, chain transactions in
+                  workflows, assert behavior with test suites, and replay mainnet
+                  transactions — all offline. Start with the demo if you've
+                  never used it.
+                </div>
               </div>
-            </button>
-          </section>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await api.call('app.newDemoProject');
+                  } catch (e) {
+                    toast.error(String(e));
+                  }
+                }}
+                className={[
+                  'w-full text-left rounded-lg border border-accent/30 bg-accent/5 p-4',
+                  'hover:border-accent hover:bg-accent/10 transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60',
+                ].join(' ')}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className="inline-flex items-center justify-center w-10 h-10 rounded bg-accent/20 text-accent shrink-0"
+                    aria-hidden
+                  >
+                    <FlaskConical size={20} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-text">
+                      Try the demo — zero setup
+                    </div>
+                    <div className="text-2xs text-text-muted mt-0.5 leading-relaxed">
+                      Spins up a fresh project with SPL Token, Token-2022, ATA, System programs
+                      pre-attached, a funded default-payer keypair, and a sandbox ready for
+                      txs. Lands in <code className="font-mono">~/Documents/Reley/</code>.
+                    </div>
+                  </div>
+                  <span className="text-2xs text-accent shrink-0 font-mono">→</span>
+                </div>
+              </button>
+            </section>
+          )}
+          {/* Hidden intro can be brought back via the system menu:
+              View → "Show Welcome Intro Again". No inline restore link to
+              keep the recents view clean. */}
 
           {/* Recents — surfaced above the concept tiles since returning users
               jump straight to one of their existing projects. */}
@@ -287,12 +354,12 @@ export function WelcomeScreen(): JSX.Element {
             )}
           </section>
 
-          {/* What can Relay do? — three concept tiles. Click any to open the
+          {/* What can Reley do? — three concept tiles. Click any to open the
               new-project sheet preloaded with that intent so the goal picker
               inside the project lands on the right tab. */}
           <section>
             <div className="text-2xs uppercase tracking-widest text-text-subtle font-semibold mb-4">
-              What can Relay do?
+              What can Reley do?
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <UseCaseTile
@@ -318,14 +385,47 @@ export function WelcomeScreen(): JSX.Element {
         </div>
       </div>
 
+      <div className="shrink-0 border-t border-border bg-surface-0/60 backdrop-blur-md">
+        <div className="mx-auto w-full max-w-3xl px-10 py-3 flex items-center justify-between text-2xs">
+          <span className="text-text-subtle">
+            SVM sandbox for Solana programs
+          </span>
+          <a
+            href="https://xitadel.fi"
+            target="_blank"
+            rel="noreferrer"
+            className="group inline-flex items-center gap-2 text-text-muted hover:text-text transition-colors"
+            title="Reley is built by Xitadel"
+          >
+            <span
+              className="text-text-subtle group-hover:text-accent transition-colors"
+              style={{ letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700 }}
+            >
+              Built by
+            </span>
+            <span
+              style={{
+                fontFamily: 'Satoshi, Figtree, sans-serif',
+                fontWeight: 900,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Xitadel
+            </span>
+            <span className="text-accent">↗</span>
+          </a>
+        </div>
+      </div>
+
       {/* New project sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent side="right" className="w-[460px] gap-5">
           <SheetHeader>
             <SheetTitle>New project</SheetTitle>
             <SheetDescription>
-              Relay writes <code className="font-mono text-text">.relay.json</code> +{' '}
-              <code className="font-mono text-text">.relay/</code> in the folder you pick.
+              Reley writes <code className="font-mono text-text">.reley.json</code> +{' '}
+              <code className="font-mono text-text">.reley/</code> in the folder you pick.
             </SheetDescription>
           </SheetHeader>
 

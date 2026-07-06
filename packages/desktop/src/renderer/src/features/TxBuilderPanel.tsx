@@ -1219,7 +1219,7 @@ export function TxBuilderPanel({
                 <HelpHint
                   label="Payer"
                   hint="Keypair that signs the tx and pays the fee. Ephemeral = auto-generated + airdropped, no setup needed."
-                  skillId="relay-keypair"
+                  skillId="reley-keypair"
                   onOpen={onOpenHelp}
                 />
               </>
@@ -1252,7 +1252,7 @@ export function TxBuilderPanel({
                   <HelpHint
                     label="Additional signers"
                     hint="Extra keypairs that must sign. Needed when an instruction has more than one signer account (e.g., authority + payer)."
-                    skillId="relay-keypair"
+                    skillId="reley-keypair"
                     onOpen={onOpenHelp}
                   />
                 </>
@@ -1388,7 +1388,7 @@ export function TxBuilderPanel({
               size="sm"
               disabled={busy || (drafts.length === 0 && !programId)}
               onClick={simulate}
-              title="Run all stacked instructions in LiteSVM read-only"
+              title="Run all stacked instructions in sandbox (read-only)"
             >
               {busy ? (
                 <>

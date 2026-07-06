@@ -1,29 +1,28 @@
-import { BorshInstructionCoder, Program as AnchorProgram, type Idl } from '@coral-xyz/anchor';
-import { ErrorCode, IpcMethod, type NetworkId, type PatchScope, RelayError } from '@relay/shared';
+import { Program as AnchorProgram, BorshInstructionCoder, type Idl } from '@coral-xyz/anchor';
+import { ErrorCode, IpcMethod, type NetworkId, type PatchScope, RelayError } from '@reley/shared';
+import type { TestCase, TestSuite } from '@reley/shared';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Cloner } from '../cloner/cloner.js';
-import { AnchorCoder, serializeDecoded } from '../patcher/anchor-coder.js';
-import { diffIdl } from '../patcher/idl-diff.js';
-import { decodeNative, resolveLayout } from '../patcher/native-layouts.js';
 import {
   decodeNativeIx,
   encodeNativeIx,
   findNativeInstruction,
   listNativeInstructions,
 } from '../instructions/native-ix.js';
-import { BUILTIN_PROGRAM_LIST, isBuiltinProgram } from '../util/builtins.js';
+import { AnchorCoder, serializeDecoded } from '../patcher/anchor-coder.js';
+import { diffIdl } from '../patcher/idl-diff.js';
+import { decodeNative, resolveLayout } from '../patcher/native-layouts.js';
 import { Replayer } from '../replayer/replayer.js';
 import { SolanaRpcServer } from '../rpc-server/solana-rpc-server.js';
 import { SessionRuntime } from '../runtime/session-runtime.js';
+import { runTestSuite } from '../runtime/test-runner.js';
 import {
   type InstructionSpec,
   type SignerInput,
   buildTransaction,
   signTransaction,
 } from '../runtime/tx-builder.js';
-import { runWorkflow, type WorkflowStepInput } from '../runtime/workflow-runner.js';
-import { runTestSuite } from '../runtime/test-runner.js';
-import type { TestCase, TestSuite } from '@relay/shared';
+import { type WorkflowStepInput, runWorkflow } from '../runtime/workflow-runner.js';
 import {
   applySnapshot,
   captureFromSession,
@@ -34,6 +33,7 @@ import {
 } from '../snapshot/snapshot.js';
 import type { CoreContext } from '../store/context.js';
 import { parseTrace } from '../trace/parser.js';
+import { BUILTIN_PROGRAM_LIST, isBuiltinProgram } from '../util/builtins.js';
 import type { HandlerMap } from './protocol.js';
 
 export interface HandlerEnv {
@@ -361,7 +361,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         {
           id: crypto.randomUUID(),
           name: 'warp moves the clock',
-          description: '8-day warp must advance unix_timestamp; recipient must exist after airdrop.',
+          description:
+            '8-day warp must advance unix_timestamp; recipient must exist after airdrop.',
           resetBefore: true,
           steps: [
             {
@@ -518,7 +519,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       // runs on a fresh demo — keyed off the project name written by
       // `app.newDemoProject`.
       if (
-        proj.name === 'Relay Demo' &&
+        proj.name === 'Reley Demo' &&
         (proj.workflows?.length ?? 0) === 0 &&
         (proj.testSuites?.length ?? 0) === 0 &&
         (proj.txTemplates?.length ?? 0) === 0
@@ -537,6 +538,14 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       return project;
     },
 
+    [IpcMethod.ProjectSetAutoClone]: async (p) => {
+      const { id, enabled } = p as { id: string; enabled: boolean };
+      const project = ctx.projects.get(id);
+      project.autoCloneEnabled = enabled;
+      await persist();
+      return { ok: true, autoCloneEnabled: enabled };
+    },
+
     [IpcMethod.ProjectDelete]: async (p) => {
       const { id } = p as { id: string };
       ctx.sessions.deleteByProject(id);
@@ -551,6 +560,17 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       await ctx.load();
       const first = ctx.projects.exportAll()[0];
       return first ?? null;
+    },
+
+    [IpcMethod.ProjectExport]: async () => {
+      // Flush pending writes so the on-disk state matches in-memory state.
+      await persist();
+      const { exportProjectZip } = await import('../store/project-export.js');
+      const result = await exportProjectZip(ctx);
+      return {
+        zipBase64: Buffer.from(result.zip).toString('base64'),
+        suggestedFileName: result.suggestedFileName,
+      };
     },
 
     [IpcMethod.SessionCreate]: async (p) => {
@@ -743,7 +763,10 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       const project = ctx.projects.get(params.projectId);
       const bytes = new Uint8Array(Buffer.from(params.bytesBase64, 'base64'));
       const blobHash = await ctx.blobs.put(bytes);
-      const source = { kind: 'localFile' as const, path: params.filePath ?? `(dropped:${params.label ?? params.programId})` };
+      const source = {
+        kind: 'localFile' as const,
+        path: params.filePath ?? `(dropped:${params.label ?? params.programId})`,
+      };
       const existing = project.programs[params.programId];
       if (existing) {
         // Treat as new version on the existing program.
@@ -819,7 +842,12 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           };
         }),
       }));
-      return { hasIdl: true, source: 'anchor' as const, idlName: idl.metadata?.name ?? programId, instructions };
+      return {
+        hasIdl: true,
+        source: 'anchor' as const,
+        idlName: idl.metadata?.name ?? programId,
+        instructions,
+      };
     },
 
     [IpcMethod.TxDecodeIx]: async (p) => {
@@ -848,8 +876,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       // Fall back to native registry
       const nativeDecoded = decodeNativeIx(programId, new Uint8Array(data));
       if (nativeDecoded) {
-        const accountNames =
-          (nativeDecoded as { accountNames?: string[] }).accountNames ?? [];
+        const accountNames = (nativeDecoded as { accountNames?: string[] }).accountNames ?? [];
         return {
           source: 'native' as const,
           name: nativeDecoded.name,
@@ -1126,7 +1153,10 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           }
         }
       });
-      const [address, bump] = PublicKey.findProgramAddressSync(seedBuffers, new PublicKey(programId));
+      const [address, bump] = PublicKey.findProgramAddressSync(
+        seedBuffers,
+        new PublicKey(programId),
+      );
       return { address: address.toBase58(), bump };
     },
 
@@ -1190,6 +1220,35 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       return patch;
     },
 
+    [IpcMethod.PatchUpdate]: async (p) => {
+      const { scope, scopeId, patchId, op } = p as {
+        scope: PatchScope;
+        scopeId: string;
+        patchId: string;
+        op: unknown;
+      };
+      const list =
+        scope === 'project'
+          ? ctx.projects.get(scopeId).patches
+          : ctx.sessions.get(scopeId).sessionPatches;
+      const patch = list.find((x) => x.id === patchId);
+      if (!patch) throw new RelayError(ErrorCode.NOT_FOUND, `patch not found: ${patchId}`);
+      if ((patch.op as { kind: string }).kind !== (op as { kind: string }).kind) {
+        throw new RelayError(
+          ErrorCode.INVALID_INPUT,
+          `cannot change patch kind (${(patch.op as { kind: string }).kind} → ${(op as { kind: string }).kind})`,
+        );
+      }
+      patch.op = op as never;
+      if (scope === 'project') {
+        for (const sid of ctx.projects.get(scopeId).sessionIds) runtime.invalidate(sid);
+      } else {
+        runtime.invalidate(scopeId);
+      }
+      await persist();
+      return patch;
+    },
+
     [IpcMethod.IdlAttach]: async (p) => {
       const { programId, idl, versionId } = p as {
         programId: string;
@@ -1222,7 +1281,10 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
     [IpcMethod.IdlList]: async () => ctx.idls.list(),
 
     [IpcMethod.IdlDiff]: async (p) => {
-      const { left, right } = p as { left: import('@coral-xyz/anchor').Idl; right: import('@coral-xyz/anchor').Idl };
+      const { left, right } = p as {
+        left: import('@coral-xyz/anchor').Idl;
+        right: import('@coral-xyz/anchor').Idl;
+      };
       return diffIdl(left, right);
     },
 
@@ -1431,6 +1493,20 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         throw new RelayError(ErrorCode.INVALID_INPUT, 'tx.send requires txBase64 or build');
       }
 
+      // Auto-clone: fetch any tx-referenced accounts not yet in the sandbox.
+      // Project setting governs (default ON). Failures here don't block the
+      // tx — the runtime will surface AccountNotFound if relevant.
+      const project = ctx.projects.get(session.projectId);
+      const autoCloneOn = project.autoCloneEnabled !== false;
+      let autoCloneReport = null as Awaited<ReturnType<typeof runtime.autoCloneForTx>> | null;
+      if (autoCloneOn) {
+        try {
+          const rpcUrl = env.resolveRpcUrl(project.rpcEndpointId);
+          autoCloneReport = await runtime.autoCloneForTx(params.sessionId, txBytes, rpcUrl);
+        } catch {
+          // Swallow — auto-clone is best-effort.
+        }
+      }
       const result = await runtime.sendTransaction(params.sessionId, txBytes);
       const trace = parseTrace(result.logs);
       const rawTxBase64 = Buffer.from(txBytes).toString('base64');
@@ -1441,6 +1517,23 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         success: result.success,
         errorMessage: result.errorMessage,
         cuConsumed: result.cuConsumed,
+        ...(autoCloneReport &&
+          (autoCloneReport.cloned.length > 0 ||
+            autoCloneReport.injectedAsSystem.length > 0 ||
+            autoCloneReport.clonedPrograms.length > 0 ||
+            autoCloneReport.resolvedAlts.length > 0) && {
+            autoCloned: {
+              cloned: autoCloneReport.cloned,
+              injectedAsSystem: autoCloneReport.injectedAsSystem,
+              ...(autoCloneReport.clonedPrograms.length > 0 && {
+                clonedPrograms: autoCloneReport.clonedPrograms,
+              }),
+              ...(autoCloneReport.resolvedAlts.length > 0 && {
+                resolvedAlts: autoCloneReport.resolvedAlts,
+              }),
+              slot: autoCloneReport.slot !== null ? autoCloneReport.slot.toString() : null,
+            },
+          }),
         trace: trace[0] ?? {
           programId: '<no-trace>',
           depth: 0,
@@ -1488,9 +1581,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
       const project = ctx.projects.get(params.projectId);
       const now = Date.now();
-      const existing = params.id
-        ? project.txTemplates.find((t) => t.id === params.id)
-        : undefined;
+      const existing = params.id ? project.txTemplates.find((t) => t.id === params.id) : undefined;
       if (existing) {
         existing.name = params.name;
         existing.description = params.description ?? '';
@@ -1579,7 +1670,10 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         }
       }
       const recursive = mode === 'recursive';
-      const detachIn = (collection: Array<{ folderId?: string | null }>, ids: Set<string>): void => {
+      const detachIn = (
+        collection: Array<{ folderId?: string | null }>,
+        ids: Set<string>,
+      ): void => {
         for (const it of collection) {
           if (it.folderId && ids.has(it.folderId)) it.folderId = null;
         }
@@ -1658,7 +1752,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
       const session = ctx.sessions.get(params.sessionId);
       const record = session.txHistory.find((r) => r.id === params.recordId);
-      if (!record) throw new RelayError(ErrorCode.NOT_FOUND, `tx record not found: ${params.recordId}`);
+      if (!record)
+        throw new RelayError(ErrorCode.NOT_FOUND, `tx record not found: ${params.recordId}`);
       if (!record.rawTxBase64) {
         throw new RelayError(
           ErrorCode.INVALID_INPUT,
@@ -1694,9 +1789,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
       const project = ctx.projects.get(params.projectId);
       const now = Date.now();
-      const existing = params.id
-        ? project.workflows.find((w) => w.id === params.id)
-        : undefined;
+      const existing = params.id ? project.workflows.find((w) => w.id === params.id) : undefined;
       if (existing) {
         existing.name = params.name;
         existing.description = params.description ?? '';
@@ -1742,7 +1835,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       if (!steps && params.workflowId) {
         const project = ctx.projects.get(session.projectId);
         const wf = project.workflows.find((w) => w.id === params.workflowId);
-        if (!wf) throw new RelayError(ErrorCode.NOT_FOUND, `workflow not found: ${params.workflowId}`);
+        if (!wf)
+          throw new RelayError(ErrorCode.NOT_FOUND, `workflow not found: ${params.workflowId}`);
         steps = wf.steps as WorkflowStepInput[];
       }
       if (!steps) {
@@ -1771,9 +1865,7 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
       };
       const project = ctx.projects.get(params.projectId);
       const now = Date.now();
-      const existing = params.id
-        ? project.testSuites.find((s) => s.id === params.id)
-        : undefined;
+      const existing = params.id ? project.testSuites.find((s) => s.id === params.id) : undefined;
       if (existing) {
         existing.name = params.name;
         existing.description = params.description ?? '';
@@ -1906,7 +1998,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           const { Keypair } = await import('@solana/web3.js');
           const have = new Set(b.signers.map((s) => s.pubkey));
           const extras: SignerInput[] = [];
-          for (const id of (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds) {
+          for (const id of (b as { additionalSignerKeypairIds: string[] })
+            .additionalSignerKeypairIds) {
             const secret = await ctx.keypairs.exportSecretKey(id);
             const kp = Keypair.fromSecretKey(secret);
             const pub = kp.publicKey.toBase58();
@@ -1933,6 +2026,19 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
         txBytes = tx.serialize();
       } else {
         throw new RelayError(ErrorCode.INVALID_INPUT, 'tx.simulate requires txBase64 or build');
+      }
+      // Auto-clone pre-flight (same policy as tx.send). Sim runs against the
+      // same SVM state, so missing accounts would simulate to AccountNotFound
+      // otherwise.
+      try {
+        const session = ctx.sessions.get(params.sessionId);
+        const project = ctx.projects.get(session.projectId);
+        if (project.autoCloneEnabled !== false) {
+          const rpcUrl = env.resolveRpcUrl(project.rpcEndpointId);
+          await runtime.autoCloneForTx(params.sessionId, txBytes, rpcUrl);
+        }
+      } catch {
+        // best-effort
       }
       const result = await runtime.simulateTransaction(params.sessionId, txBytes);
       const trace = parseTrace(result.logs);
@@ -1997,7 +2103,8 @@ export function buildHandlers(env: HandlerEnv): HandlerMap {
           const { Keypair } = await import('@solana/web3.js');
           const have = new Set(b.signers.map((s) => s.pubkey));
           const extras: SignerInput[] = [];
-          for (const id of (b as { additionalSignerKeypairIds: string[] }).additionalSignerKeypairIds) {
+          for (const id of (b as { additionalSignerKeypairIds: string[] })
+            .additionalSignerKeypairIds) {
             const secret = await ctx.keypairs.exportSecretKey(id);
             const kp = Keypair.fromSecretKey(secret);
             const pub = kp.publicKey.toBase58();

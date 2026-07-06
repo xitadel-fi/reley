@@ -1,8 +1,8 @@
 /**
- * Mint mainnet USDC into a fresh wallet against a Relay-hosted LiteSVM session.
+ * Mint mainnet USDC into a fresh wallet against a Reley-hosted LiteSVM session.
  *
  * Env:
- *   RELAY_SESSION_URL       e.g. http://127.0.0.1:8899/session/<sessionId>
+ *   RELEY_SESSION_URL       e.g. http://127.0.0.1:8899/session/<sessionId>
  *   PAYER_KEYPAIR           base58 secret OR path to Solana CLI JSON keypair
  *   MINT_AUTHORITY_KEYPAIR  base58 secret OR path; pubkey patched onto USDC.mintAuthority
  *   RECIPIENT_PUBKEY        base58 pubkey to receive USDC
@@ -55,7 +55,7 @@ function loadKeypair(value: string): Keypair {
 }
 
 async function main(): Promise<void> {
-  const url = envOrThrow('RELAY_SESSION_URL');
+  const url = envOrThrow('RELEY_SESSION_URL');
   const payer = loadKeypair(envOrThrow('PAYER_KEYPAIR'));
   const mintAuthority = loadKeypair(envOrThrow('MINT_AUTHORITY_KEYPAIR'));
   const recipient = new PublicKey(envOrThrow('RECIPIENT_PUBKEY'));

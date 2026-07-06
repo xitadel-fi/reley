@@ -1,6 +1,6 @@
 {
-  "name": "relay",
-  "version": "0.0.0",
+  "name": "reley",
+  "version": "1.0.0-beta.1",
   "private": true,
   "description": "Solana program cloner + LiteSVM sandbox with simulation, replay, trace, and diff",
   "license": "SEE LICENSE IN LICENSE",
@@ -14,9 +14,13 @@
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "typecheck": "pnpm --filter @relay/shared build && pnpm --filter @relay/core build && pnpm -r typecheck",
+    "typecheck": "pnpm --filter @reley/shared build && pnpm --filter @reley/core build && pnpm -r typecheck",
     "clean": "pnpm -r exec rm -rf dist out .tsbuildinfo tsconfig.tsbuildinfo",
-    "cli": "pnpm --filter @relay/core-cli start"
+    "cli": "pnpm --filter @reley/core-cli start",
+    "release": "node scripts/release.mjs",
+    "publish:all": "scripts/publish.sh",
+    "publish:dry": "scripts/publish.sh --dry-run",
+    "publish:beta": "scripts/publish.sh --tag beta"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

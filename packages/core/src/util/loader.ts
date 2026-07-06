@@ -21,3 +21,28 @@ export function deriveProgramDataAddress(programId: PublicKey): PublicKey {
 }
 
 export const PROGRAM_DATA_HEADER_LEN = 45;
+
+/**
+ * Decode the bytes of an upgradeable-loader `ProgramData` account. Layout:
+ *   - 4 bytes: enum discriminator (3 = ProgramData)
+ *   - 8 bytes: last-deploy slot
+ *   - 1 byte: hasAuthority flag
+ *   - 32 bytes: upgrade authority pubkey (zeroed if no authority)
+ *   - rest: ELF bytes
+ */
+export function parseUpgradeableProgramData(data: Buffer | Uint8Array): {
+  elf: Uint8Array;
+  upgradeAuthority: PublicKey | null;
+} {
+  const buf = data instanceof Buffer ? data : Buffer.from(data);
+  if (buf.length < PROGRAM_DATA_HEADER_LEN) {
+    throw new Error('ProgramData buffer too short');
+  }
+  const hasAuthority = buf.readUInt8(12) === 1;
+  let upgradeAuthority: PublicKey | null = null;
+  if (hasAuthority) {
+    upgradeAuthority = new PublicKey(buf.subarray(13, 13 + 32));
+  }
+  const elf = new Uint8Array(buf.subarray(PROGRAM_DATA_HEADER_LEN));
+  return { elf, upgradeAuthority };
+}

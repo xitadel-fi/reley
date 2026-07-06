@@ -104,7 +104,7 @@ export function AddProgramForm({
           {builtins.map((b) => (
             <option key={b.programId} value={b.programId}>
               {b.label}
-              {b.inSvm ? ' · LiteSVM' : ' · RPC clone (auto)'}
+              {b.inSvm ? ' · built-in' : ' · RPC clone (auto)'}
             </option>
           ))}
         </Select>
@@ -116,7 +116,7 @@ export function AddProgramForm({
             <div className="text-sm font-medium text-text">{chosenBuiltin.label}</div>
             {chosenBuiltin.inSvm ? (
               <Badge size="sm" variant="success">
-                <Check size={10} aria-hidden /> in LiteSVM
+                <Check size={10} aria-hidden /> built-in
               </Badge>
             ) : (
               <Badge size="sm" variant="accent">
@@ -132,7 +132,7 @@ export function AddProgramForm({
           </div>
           <div className="mt-2 text-2xs text-text-subtle">
             {chosenBuiltin.inSvm
-              ? 'Bundled into LiteSVM — instant attach, no RPC roundtrip.'
+              ? 'Bundled built-in — instant attach, no RPC roundtrip.'
               : 'Will auto-clone from RPC on first use.'}
           </div>
         </div>

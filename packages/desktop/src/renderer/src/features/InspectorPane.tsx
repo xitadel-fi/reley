@@ -105,7 +105,7 @@ export function InspectorPane({
 
       {tab === 'shortcuts' && <ShortcutsTab />}
 
-      {tab === 'help' && <HelpPanel initialSkillId={helpSkillId ?? 'relay-overview'} />}
+      {tab === 'help' && <HelpPanel initialSkillId={helpSkillId ?? 'reley-overview'} />}
     </aside>
   );
 }
@@ -429,17 +429,36 @@ function ActivityTab({
 }
 
 function ShortcutsTab(): JSX.Element {
-  const shortcuts: Array<{ keys: string; what: string }> = [
-    { keys: '⌘K', what: 'Open command palette' },
-    { keys: '⌘B', what: 'Toggle left sidebar' },
-    { keys: '⌘⌥B', what: 'Toggle right inspector' },
-    { keys: 'Right-click', what: 'Show actions for project / program / account / sandbox' },
-    { keys: 'Click account', what: 'Open Inspector modal' },
-    { keys: 'Click sandbox', what: 'Set as active sandbox' },
-    { keys: 'Click program', what: 'Expand / collapse accounts' },
-    { keys: 'Esc', what: 'Close modal' },
-    { keys: 'Enter', what: 'Submit prompt' },
-    { keys: 'Drag sidebar edge', what: 'Resize left sidebar' },
+  const shortcuts: Array<{ keys: string; what: string; group: string }> = [
+    // Navigation
+    { group: 'Navigation', keys: '⌘K', what: 'Open command palette' },
+    { group: 'Navigation', keys: '⌘B', what: 'Toggle left sidebar' },
+    { group: 'Navigation', keys: '⌘⌥B', what: 'Toggle right inspector' },
+    { group: 'Navigation', keys: '⌘J', what: 'Toggle bottom console dock' },
+    // Workspace
+    { group: 'Workspace', keys: 'Click sandbox', what: 'Switch the active sandbox' },
+    { group: 'Workspace', keys: 'Click program', what: 'Expand / collapse cloned accounts' },
+    { group: 'Workspace', keys: 'Click account', what: 'Open the Account Inspector drawer' },
+    { group: 'Workspace', keys: 'Right-click', what: 'Show actions for project / program / account / sandbox / template / workflow / patch' },
+    { group: 'Workspace', keys: 'Double-click name', what: 'Inline rename (sidebar items)' },
+    // Tx Builder
+    { group: 'Tx Builder', keys: 'Enter (Build args)', what: 'Move to next field' },
+    { group: 'Tx Builder', keys: 'Run · Simulate', what: 'Execute without persisting state' },
+    { group: 'Tx Builder', keys: 'Run · Submit', what: 'Execute + append to tx history' },
+    // Automations
+    { group: 'Automations', keys: 'Click Run', what: 'Run workflow / test suite; results land in bottom Results tab' },
+    { group: 'Automations', keys: 'Click Edit (detail)', what: 'Enter editor mode (read-only by default)' },
+    { group: 'Automations', keys: 'Click Duplicate step', what: 'Clone a step in place' },
+    // Modals + forms
+    { group: 'Modals', keys: 'Esc', what: 'Close modal or dialog' },
+    { group: 'Modals', keys: 'Enter', what: 'Submit prompt / confirm dialog' },
+    // Console dock
+    { group: 'Console', keys: '⌘J', what: 'Toggle dock' },
+    { group: 'Console', keys: 'Drag top edge', what: 'Resize dock height (persisted)' },
+    { group: 'Console', keys: 'Tab: Latest', what: 'Filter logs to last tx only' },
+    // Misc
+    { group: 'Misc', keys: 'Drag sidebar edge', what: 'Resize left sidebar (persisted)' },
+    { group: 'Misc', keys: '? icon (top-right)', what: 'Re-open the quick-start tour' },
   ];
   const concepts: Array<{ title: string; body: string }> = [
     {
@@ -452,7 +471,7 @@ function ShortcutsTab(): JSX.Element {
     },
     {
       title: 'Built-in programs',
-      body: 'SPL Token / Token-2022 / Memo / System / ATA / Compute Budget / ALT are in LiteSVM — attach with zero clone cost.',
+      body: 'SPL Token / Token-2022 / Memo / System / ATA / Compute Budget / ALT are built-in — attach with zero clone cost.',
     },
   ];
   return (
@@ -463,14 +482,23 @@ function ShortcutsTab(): JSX.Element {
             <Command size={11} aria-hidden /> Shortcuts
           </span>
         </SectionTitle>
-        <ul className="flex flex-col gap-1">
-          {shortcuts.map((s) => (
-            <li key={s.keys} className="flex items-center gap-3 py-1 text-xs">
-              <Kbd className="shrink-0">{s.keys}</Kbd>
-              <span className="text-text-muted flex-1 min-w-0">{s.what}</span>
-            </li>
-          ))}
-        </ul>
+        {Array.from(new Set(shortcuts.map((s) => s.group))).map((groupName) => (
+          <div key={groupName} className="mt-3 first:mt-0">
+            <div className="text-2xs uppercase tracking-wider text-text-subtle font-semibold mb-1.5">
+              {groupName}
+            </div>
+            <ul className="flex flex-col gap-1">
+              {shortcuts
+                .filter((s) => s.group === groupName)
+                .map((s, i) => (
+                  <li key={`${s.keys}-${i}`} className="flex items-center gap-3 py-0.5 text-xs">
+                    <Kbd className="shrink-0">{s.keys}</Kbd>
+                    <span className="text-text-muted flex-1 min-w-0">{s.what}</span>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ))}
       </section>
       <section>
         <SectionTitle>Concepts</SectionTitle>

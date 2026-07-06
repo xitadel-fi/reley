@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { PublicKey, type VersionedTransaction, type Transaction } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import type { CoreContext } from '../store/context.js';
 import type { SessionRuntime } from '../runtime/session-runtime.js';
 import { parseTrace } from '../trace/parser.js';
@@ -98,7 +98,7 @@ export class SolanaRpcServer {
     if (req.method === 'GET') {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/plain');
-      res.end('Relay LiteSVM RPC — POST JSON-RPC 2.0 to /session/<sessionId>');
+      res.end('Reley SVM sandbox RPC - POST JSON-RPC 2.0 to /session/<sessionId>');
       return;
     }
     if (req.method !== 'POST') {
@@ -179,7 +179,7 @@ export class SolanaRpcServer {
         return 'ok';
 
       case 'getVersion':
-        return { 'solana-core': '1.18.0-relay', 'feature-set': 0 };
+        return { 'solana-core': '1.18.0-reley', 'feature-set': 0 };
 
       case 'getGenesisHash':
         return '11111111111111111111111111111111';
@@ -408,7 +408,7 @@ function wrapContext<T>(sessionId: string, server: SolanaRpcServer, value: T): {
   const ctx = server['ctx']; // intentional reflection — internal helper
   const session = ctx.sessions.get(sessionId);
   return {
-    context: { slot: Number(session.currentSlot), apiVersion: '1.18.0-relay' },
+    context: { slot: Number(session.currentSlot), apiVersion: '1.18.0-reley' },
     value,
   };
 }

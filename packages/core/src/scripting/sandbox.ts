@@ -1,12 +1,14 @@
 import { type Context, createContext, runInContext } from 'node:vm';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 
 export interface ScriptSandboxOptions {
   /** Allowed URL prefixes (exact or regex strings) for fetch. Default deny. */
   networkAllowlist?: Array<string | RegExp>;
   /** Hard wall-clock timeout in ms. Default 5_000. */
   timeoutMs?: number;
-  /** Pass `relay` API into the script — typically a thin wrapper around Dispatcher.call. */
+  /** Pass `reley` API into the script - typically a thin wrapper around Dispatcher.call. */
+  reley?: unknown;
+  /** @deprecated use `reley`. Kept so older callers/scripts keep working. */
   relay?: unknown;
 }
 
@@ -54,6 +56,7 @@ export async function runScript(
     return fetch(url, init as RequestInit | undefined);
   };
 
+  const api = opts.reley ?? opts.relay;
   const sandbox: Record<string, unknown> = {
     console: consoleProxy,
     fetch: fetchProxy,
@@ -63,11 +66,13 @@ export async function runScript(
     clearTimeout,
     Promise,
     Buffer,
-    relay: opts.relay,
+    reley: api,
+    // Deprecated: keep `relay` global for scripts written pre-rename.
+    relay: api,
   };
 
   const ctx: Context = createContext(sandbox, {
-    name: 'relay-script',
+    name: 'reley-script',
     codeGeneration: { strings: false, wasm: false },
   });
 

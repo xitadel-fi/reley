@@ -51,6 +51,10 @@ export const DialogContent = forwardRef<
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full',
         'bg-surface-0 border border-border rounded-lg shadow-elev-3',
         'p-5 grid gap-4',
+        // Tall forms (AddProgramVersion, AttachIdl file pickers) must scroll
+        // their own body instead of pushing the footer off-screen. Cap at
+        // 92vh + own scrollbar.
+        'max-h-[92vh] overflow-y-auto',
         'data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out',
         'focus:outline-none',
         sizeMap[size],

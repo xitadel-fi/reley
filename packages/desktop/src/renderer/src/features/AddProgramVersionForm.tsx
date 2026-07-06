@@ -154,7 +154,7 @@ export function AddProgramVersionForm({
       )}
 
       {kind === 'blob' && (
-        <Field label="Blob hash" required help="sha256 hex of an ELF already in .relay/blobs/.">
+        <Field label="Blob hash" required help="sha256 hex of an ELF already in .reley/blobs/.">
           <Input
             value={blobHash}
             onChange={(e) => setBlobHash(e.target.value.trim())}

@@ -1,5 +1,5 @@
 import { Keypair } from '@solana/web3.js';
-import { ErrorCode, RelayError, type Uuid } from '@relay/shared';
+import { ErrorCode, RelayError, type Uuid } from '@reley/shared';
 import { buildTransaction, signTransaction } from './tx-builder.js';
 import type { SessionRuntime } from './session-runtime.js';
 import type { CoreContext } from '../store/context.js';

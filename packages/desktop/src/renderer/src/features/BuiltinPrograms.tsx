@@ -13,6 +13,7 @@ interface BuiltinDescriptor {
   programId: string;
   label: string;
   inSvm: boolean;
+  autoCloned?: boolean;
   hasIdl: boolean;
   description: string;
 }
@@ -51,8 +52,9 @@ export function BuiltinPrograms({
     <div className="panel">
       <h2 className="m-0 mb-1">Built-in programs</h2>
       <div className="text-xs text-text-muted mb-3">
-        Always available — SPL Token / Token-2022 / Memo / ATA / Compute Budget / ALT live inside
-        LiteSVM. Metaplex Token Metadata auto-clones on first use. Native programs need no IDL.
+        Always available - SPL Token / Token-2022 / Memo / ATA / Compute Budget / ALT
+        ship inside the sandbox. Metaplex Token Metadata is bundled too and attaches
+        on project create. Native programs need no IDL.
       </div>
 
       {err && <ErrorState title="Attach failed" message={err} />}
@@ -82,9 +84,9 @@ export function BuiltinPrograms({
                     <Pubkey value={b.programId} className="text-text-muted" />
                   </td>
                   <td className="px-3 py-2">
-                    {b.inSvm ? (
+                    {b.inSvm || b.autoCloned ? (
                       <Badge size="sm" variant="success">
-                        LiteSVM
+                        Built-in
                       </Badge>
                     ) : (
                       <Badge size="sm" variant="accent">

@@ -1,6 +1,6 @@
 import type { Idl } from '@coral-xyz/anchor';
-import { ErrorCode, type Patch, RelayError } from '@relay/shared';
-import type { AccountSnapshot } from '@relay/shared';
+import { ErrorCode, type Patch, RelayError } from '@reley/shared';
+import type { AccountSnapshot } from '@reley/shared';
 import { AnchorCoder, setFieldByPath } from '../patcher/anchor-coder.js';
 import { encodeNativeField, resolveLayout } from '../patcher/native-layouts.js';
 

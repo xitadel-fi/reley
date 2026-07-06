@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import type {
   AccountEntry,
   Patch,
@@ -13,11 +13,10 @@ import type {
   TestSuite,
   TxTemplate,
   Workflow,
-} from '@relay/shared';
+} from '@reley/shared';
 import type { PersistenceSink, Project, StoreSnapshot } from './types.js';
 
 export const STORE_FORMAT_VERSION = 2;
-const MANIFEST_NAME = '.relay.json';
 
 /**
  * Migration registry. Each entry transforms raw manifest data FROM the keyed
@@ -90,6 +89,9 @@ interface ManifestV2 {
   keypairRefs: string[];
   /** Optional folder tree for grouping templates + programs in the sidebar. */
   folders?: Project['folders'];
+  /** Auto-clone toggle, persisted across sessions. Defaults to ON when
+   *  undefined for backward compat with pre-feature projects. */
+  autoCloneEnabled?: boolean;
   createdAt: number;
   lastOpenedAt: number;
   pinned: boolean;
@@ -99,8 +101,10 @@ interface ManifestV2 {
 export class ProjectManifestSink {
   private readonly path: string;
 
-  constructor(projectRoot: string) {
-    this.path = join(projectRoot, MANIFEST_NAME);
+  constructor(projectRoot: string, manifestPath?: string) {
+    // Caller can pass the resolved manifest path (`.reley.json` or legacy
+    // `.relay.json`). When omitted, default to the new-brand filename.
+    this.path = manifestPath ?? join(projectRoot, '.reley.json');
   }
 
   async load(): Promise<ManifestV2 | null> {

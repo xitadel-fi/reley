@@ -22,6 +22,8 @@ export interface BuiltinDescriptor {
   label: string;
   /** Bundled into LiteSVM (no clone, no ELF). */
   inSvm: boolean;
+  /** Auto-cloned on project creation / first program.add. Treated as built-in by the UI. */
+  autoCloned?: boolean;
   /** Has a known Anchor IDL we'd want to ship later (P7 IDL pack). */
   hasIdl: boolean;
   description: string;
@@ -92,9 +94,10 @@ export const BUILTIN_PROGRAM_LIST: BuiltinDescriptor[] = [
     programId: METAPLEX_TOKEN_METADATA_PROGRAM.toBase58(),
     label: 'Metaplex Token Metadata',
     inSvm: false,
+    autoCloned: true,
     hasIdl: true,
     description:
-      'Metaplex Token Metadata — auto-cloned on first program.add. No mainnet RPC roundtrip after cache.',
+      'Metaplex Token Metadata - auto-attached on project create. Bundled blob, no mainnet RPC roundtrip.',
   },
 ];
 

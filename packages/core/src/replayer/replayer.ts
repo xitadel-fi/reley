@@ -1,4 +1,4 @@
-import { ErrorCode, RelayError, type TraceNode } from '@relay/shared';
+import { ErrorCode, RelayError, type TraceNode } from '@reley/shared';
 import {
   type AccountInfo,
   AddressLookupTableAccount,

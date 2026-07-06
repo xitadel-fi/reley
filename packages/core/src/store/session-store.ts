@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCode, RelayError } from '@relay/shared';
+import { ErrorCode, RelayError } from '@reley/shared';
 import type { CreateSessionInput, SessionMeta, SessionState } from './types.js';
 
 export class SessionStore {

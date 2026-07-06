@@ -76,7 +76,7 @@ export function ReplayPanel({
               <span className="entity-pill entity-pill-workflow">forensics</span>
             </div>
             <p className="entity-detail-hero-desc">
-              Fetch tx, resolve ALT lookups, hydrate state at slot−1, execute in LiteSVM,
+              Fetch tx, resolve ALT lookups, hydrate state at slot−1, execute locally,
               diff vs on-chain. Archive RPC recommended for reliable slot−1 reads.
             </p>
           </div>
