@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect x="8" y="8" width="1008" height="1008" rx="224" ry="224" fill="#091721" stroke="rgba(212,249,255,0.14)" stroke-width="2"/>
-  <path fill="#20C8EE" fill-rule="evenodd" d="M288 256h280c102.4 0 168 59.2 168 152 0 67.2-33.6 118.4-92.8 140.8L768 768H624l-112-192h-80v192H288V256zm144 128v96h128c33.6 0 54.4-17.6 54.4-48s-20.8-48-54.4-48H432z"/>
-  <circle cx="784" cy="240" r="56" fill="#26CDD3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" fill="none">
+  <rect x="8" y="8" width="1008" height="1008" rx="224" ry="224" fill="#091721" stroke="rgba(212,249,255,0.14)" stroke-width="16"/>
+  <path fill="url(#reley-r-grad)" fill-rule="evenodd" d="M288 256h280c102.4 0 168 59.2 168 152 0 67.2-33.6 118.4-92.8 140.8L768 768H624l-112-192h-80v192H288V256zm144 128v96h128c33.6 0 54.4-17.6 54.4-48s-20.8-48-54.4-48H432z"/>
+  <circle cx="784" cy="240" r="56" fill="#72E1EE"/>
+  <defs>
+    <linearGradient id="reley-r-grad" x1="512" y1="256" x2="512" y2="768" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00BCDA"/>
+      <stop offset="1" stop-color="#72E1EE"/>
+    </linearGradient>
+  </defs>
 </svg>
