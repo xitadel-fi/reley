@@ -180,6 +180,9 @@ importers:
         specifier: ^3.6.0
         version: 3.6.0
     devDependencies:
+      '@electron/notarize':
+        specifier: ^2.5.0
+        version: 2.5.0
       '@types/react':
         specifier: ^18.3.3
         version: 18.3.31

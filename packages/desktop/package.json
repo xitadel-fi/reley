@@ -25,6 +25,7 @@
       "output": "release"
     },
     "asar": false,
+    "afterSign": "build/notarize.cjs",
     "files": [
       "out/**/*",
       "build/icon.*",
@@ -40,10 +41,8 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "identity": "Developer ID Application: Anh Tuan Hoang (V9WZQC7N5M)",
-      "notarize": {
-        "teamId": "V9WZQC7N5M"
-      },
+      "identity": "Anh Tuan Hoang (V9WZQC7N5M)",
+      "notarize": false,
       "target": [
         {
           "target": "dmg",
@@ -124,6 +123,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
