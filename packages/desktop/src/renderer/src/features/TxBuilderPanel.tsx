@@ -186,6 +186,7 @@ export function TxBuilderPanel({
   pendingTemplateId,
   onTemplateConsumed,
   onOpenHelp,
+  onPushRunRecord,
 }: {
   project: Project;
   activeSessionId: string | null;
@@ -193,6 +194,7 @@ export function TxBuilderPanel({
   pendingTemplateId?: string | null | undefined;
   onTemplateConsumed?: () => void;
   onOpenHelp?: (skillId: string) => void;
+  onPushRunRecord?: (rec: import('./ConsoleDock').RunRecord) => void;
 }): JSX.Element {
   const [programId, setProgramId] = useState<string>('');
   const [mode, setMode] = useState<Mode>('instruction');
@@ -736,7 +738,25 @@ export function TxBuilderPanel({
     try {
       const payload = await buildPayload();
       const r = await api.call<TxSendResult>('tx.simulate', payload);
-      setResult({ ...r, simulated: true });
+      const simR = { ...r, simulated: true };
+      if (onPushRunRecord) {
+        const cu = String(r.cuConsumed ?? 0);
+        const logCount = r.logs?.length ?? 0;
+        const name = loadedTemplateId
+          ? (templates.find((t) => t.id === loadedTemplateId)?.name ?? 'Tx template')
+          : programId
+            ? `${programId.slice(0, 6)}…${programId.slice(-4)}`
+            : 'Untitled tx';
+        onPushRunRecord({
+          kind: 'tx',
+          name,
+          pass: r.success,
+          subtitle: `${cu} CU · ${logCount} log${logCount === 1 ? '' : 's'}${r.errorMessage ? ` · ${r.errorMessage}` : ''}`,
+          body: <TxResultView result={simR} />,
+        });
+      } else {
+        setResult(simR);
+      }
     } catch (e) {
       setErr(String(e));
     } finally {

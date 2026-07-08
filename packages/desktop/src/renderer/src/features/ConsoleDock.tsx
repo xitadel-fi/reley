@@ -20,7 +20,7 @@ interface TxRecord {
 }
 
 export interface RunRecord {
-  kind: 'workflow' | 'testSuite';
+  kind: 'workflow' | 'testSuite' | 'tx';
   name: string;
   pass: boolean;
   /** Already-rendered result body (a RunResultView from the panel) so the
@@ -170,7 +170,6 @@ export function ConsoleDock({
           )}
         </button>
         <span className="workspace-dock-spacer" />
-        <span className="text-2xs text-text-subtle font-mono">⌘J to toggle</span>
         <button
           type="button"
           className="workspace-dock-close"
@@ -218,7 +217,11 @@ function ResultsTab({
         <div className="results-tab-banner-body">
           <span className="results-tab-banner-title">
             <span className="results-tab-banner-kind">
-              {record.kind === 'workflow' ? 'Workflow' : 'Test Suite'}
+              {record.kind === 'workflow'
+                ? 'Workflow'
+                : record.kind === 'testSuite'
+                  ? 'Test Suite'
+                  : 'Tx Simulation'}
             </span>
             <span className="results-tab-banner-name">{record.name}</span>
           </span>

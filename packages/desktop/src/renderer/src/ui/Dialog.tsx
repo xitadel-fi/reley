@@ -55,7 +55,7 @@ export const DialogContent = forwardRef<
         // their own body instead of pushing the footer off-screen. Cap at
         // 92vh + own scrollbar.
         'max-h-[92vh] overflow-y-auto',
-        'data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out',
+        'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
         'focus:outline-none',
         sizeMap[size],
         className,

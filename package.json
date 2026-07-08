@@ -1,6 +1,6 @@
 {
   "name": "reley",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "private": true,
   "description": "Solana program cloner + LiteSVM sandbox with simulation, replay, trace, and diff",
   "license": "SEE LICENSE IN LICENSE",

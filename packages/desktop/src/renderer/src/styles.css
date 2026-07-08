@@ -1247,20 +1247,8 @@ aside.tree-pane {
 main.workspace {
   grid-area: center;
   overflow-y: auto;
-  padding: 16px;
   display: flex;
   flex-direction: column;
-}
-
-main.workspace.workspace-files {
-  padding: 0;
-}
-
-/* Strip outer padding when an entity-detail / hero is being rendered so the
-   hero gradient + section borders go edge-to-edge against sidebar/dock. */
-main.workspace:has(.entity-detail),
-main.workspace:has(.first-run-hero) {
-  padding: 0;
 }
 
 aside.inspector {

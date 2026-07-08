@@ -2105,6 +2105,7 @@ export function App(): JSX.Element {
                         pendingTemplateId={pendingTemplateId}
                         onTemplateConsumed={() => setPendingTemplateId(undefined)}
                         onOpenHelp={openHelp}
+                        onPushRunRecord={pushRunRecord}
                       />
                     )}
                     {workspaceTab === 'automations' &&

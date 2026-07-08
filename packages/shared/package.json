@@ -1,6 +1,6 @@
 {
   "name": "@reley/shared",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Shared zod schemas + IPC types + error envelope for the Reley toolchain.",
   "license": "MIT",
   "type": "module",

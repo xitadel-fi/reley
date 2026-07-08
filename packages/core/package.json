@@ -1,6 +1,6 @@
 {
   "name": "@reley/core",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Reley engine — LiteSVM sandbox, RPC cloner, Anchor patcher, replayer, trace parser, and snapshot store.",
   "license": "MIT",
   "type": "module",

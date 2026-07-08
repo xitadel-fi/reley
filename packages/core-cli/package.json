@@ -1,6 +1,6 @@
 {
   "name": "@reley/core-cli",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Reley CLI — clone Solana programs, run them in LiteSVM, replay mainnet txs, build + sign + simulate tx templates.",
   "license": "MIT",
   "type": "module",
